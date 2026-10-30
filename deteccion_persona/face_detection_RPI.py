@@ -6,7 +6,7 @@ import time
 fps_detection = 10
 frame_detection_time = 1 / fps_detection
 model_path = "face_detection_yunet_2026may.onnx"
-camera_index = 1  # en computador: 0->camara laptop, 1->camara externa
+camera_index = 0  # en computador: 0->camara laptop, 1->camara externa
 frame_width = 640  # RECALIBRAR RANGO DISTANCIA SI SE CAMBIA
 frame_height = 360 # RECALIBRAR RANGO DISTANCIA SI SE CAMBIA
 
@@ -21,7 +21,9 @@ near_widths = list()
 
 # ----------------- begin code ----------------------------------------------- #
 
-cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)  # DirectShow para iniciar mas rapido (cv2.CAP_V4L2 para linux)
+cv2.setNumThreads(2)  # limita la cantidad de threads a usar (RPI4 tiene 4 cores)
+
+cap = cv2.VideoCapture(camera_index, cv2.CAP_V4L2)  # DirectShow para iniciar mas rapido (cv2.CAP_V4L2 para linux)
 
 # se limitan las caracteristicas de la camara para no usar tantos recursos
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, frame_width)
@@ -51,14 +53,8 @@ while cap.isOpened():
             box = face[0:4].astype(np.int32)
 
             faces_widths.append(box[2])
-            #print(box[2])
 
-            cv2.rectangle(frame, (box[0], box[1]), (box[0] + box[2], box[1] + box[3]), (255, 0, 0), 2)
-
-            # codigo para puntos de ojos y bocas:
-            #landmarks = face[4:14].reshape((5, 2)).astype(np.int32)
-            #for lm in landmarks:
-                #cv2.circle(frame, tuple(lm), 2, (0, 255, 255), -1)
+            #cv2.rectangle(frame, (box[0], box[1]), (box[0] + box[2], box[1] + box[3]), (255, 0, 0), 2)
 
     nearest_face_width = max(faces_widths, default=None)  # detecta a persona mas cercana a camara
     faces_widths = list()
@@ -89,7 +85,7 @@ while cap.isOpened():
         # se envia señal cuando la persona no esta dentro de distancia objetivo
         pass
 
-
+    # tiempo para dormir y funcionar a 10fps
     elapsed = time.monotonic() - loop_start
     sleep_time = frame_detection_time - elapsed
 
@@ -98,8 +94,7 @@ while cap.isOpened():
     else:
         time.sleep(frame_detection_time)
     
-    
-    cv2.imshow("Testing face tracker", frame)  # show image (sacar en implementacion)
+    # cv2.imshow("Testing face tracker", frame)  # show image (sacar en implementacion)
     if cv2.waitKey(1) & 0xFF == ord('q'):   # stop if q is pressed (cambiarlo por boton apagado o otra cosa)
         break
 
