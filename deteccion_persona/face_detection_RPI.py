@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import time
+from collections  import deque
 
 # constants 
 fps_detection = 10
@@ -8,7 +9,7 @@ frame_detection_time = 1 / fps_detection
 model_path = "face_detection_yunet_2026may.onnx"
 camera_index = 0  # en computador: 0->camara laptop, 1->camara externa
 frame_width = 640  # RECALIBRAR RANGO DISTANCIA SI SE CAMBIA
-frame_height = 360 # RECALIBRAR RANGO DISTANCIA SI SE CAMBIA
+frame_height = 352 # 352 para que sea divisible por 32 (no influye en ancho de cara)
 
 # variables
 width_avg = 0
@@ -17,7 +18,7 @@ elapsed = 0
 face_detected = False
 
 faces_widths = list()
-near_widths = list()
+near_widths = deque(maxlen=10)  # recomendado por IA en vez de list para que no se mueva todo al hacer del list[0]
 
 # ----------------- begin code ----------------------------------------------- #
 
@@ -30,6 +31,7 @@ cap.set(cv2.CAP_PROP_FRAME_WIDTH, frame_width)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, frame_height)
 cap.set(cv2.CAP_PROP_AUTOFOCUS, 0) # deshabilitar autofocus (deberia mejorar un poco el rendimiento)
 cap.set(cv2.CAP_PROP_FPS, 10)  # tal vez cambiar (para evitar frame lag)
+cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # solo usa el frame mas nuevo sin "acumular" frames antiguos
 
 # se lee las dimensiones verdaderas (por si no se actualizaron correctamente los limites)
 w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -62,6 +64,7 @@ while cap.isOpened():
     if nearest_face_width == None:
         if face_detected == True:
             no_face_timer = time.monotonic()
+            near_widths.clear()   # para no mantener valores antiguos
         face_detected = False
     else:
         face_detected = True
@@ -70,7 +73,6 @@ while cap.isOpened():
         # promedio de ancho ultimos 10 frames
         if len(near_widths) == 10:
             width_avg = int(sum(near_widths) / 10)
-            del near_widths[0]
     
     if not face_detected:
         elapsed = time.monotonic() - no_face_timer
@@ -91,12 +93,10 @@ while cap.isOpened():
 
     if sleep_time > 0:
         time.sleep(sleep_time)  # para que el programa funcione con 10fps
-    else:
-        time.sleep(frame_detection_time)
     
     # cv2.imshow("Testing face tracker", frame)  # show image (sacar en implementacion)
-    if cv2.waitKey(1) & 0xFF == ord('q'):   # stop if q is pressed (cambiarlo por boton apagado o otra cosa)
-        break
+    #if cv2.waitKey(1) & 0xFF == ord('q'):   # stop if q is pressed (cambiarlo por boton apagado o otra cosa)
+        #break
 
 else:
     print("Camera disconnected")
