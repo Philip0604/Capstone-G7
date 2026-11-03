@@ -1,0 +1,21 @@
+# Entornos virtuales de Python
+venv/
+.venv/
+env/
+**/venv/
+**/.venv/
+**/env/
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+**/__pycache__/
+*.pyc
+
+# Videos generados y archivos de video
+guia_trote/videos/output/
+guia_trote/videos/input/
+guia_trote/src/deteccion_pista/Opciones/
+*.mp4
+
+guia_trote/datasets/
