@@ -9,6 +9,8 @@ env/
 # Archivos de Python
 __pycache__/
 *.py[cod]
+**/__pycache__/
+*.pyc
 
 # Videos generados y archivos de video
 guia_trote/videos/output/
