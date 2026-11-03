@@ -15,6 +15,7 @@ __pycache__/
 # Videos generados y archivos de video
 guia_trote/videos/output/
 guia_trote/videos/input/
+guia_trote/src/deteccion_pista/Opciones/
 *.mp4
 
 guia_trote/datasets/
