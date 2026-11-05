@@ -16,6 +16,11 @@ MIN_LONGITUD = 35
 ANCHO_GRUPO = 15  # Pixeles
 MIN_SEGMENTOS_GRUPO = 5
 
+def constrain(val, min_val):
+
+    if val < min_val: return min_val
+    return val
+
 # Función que transforma la perspectiva de la imagen para ver el suelo con proporciones más claras
 def transformacion_perspectiva(frame):
     h, w = frame.shape[:2]
@@ -102,7 +107,7 @@ def agrupar_lineas(segmentos, alto):
     x_min = np.floor(posiciones.min() / ANCHO_GRUPO) * ANCHO_GRUPO
     indices = np.floor((posiciones - x_min) / ANCHO_GRUPO).astype(int)
 
-    cantidad_bins = indices.max() + 1
+    cantidad_bins = constrain(indices.max(), 0) + 1
 
     # Acumular cantidad, posiciones y pendientes
     conteo = np.bincount(indices, minlength=cantidad_bins)
