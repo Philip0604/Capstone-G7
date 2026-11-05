@@ -80,6 +80,9 @@ def agrupar_lineas(segmentos, alto):
     # Convertir todos los segmentos a arreglos NumPy
     s = segmentos[:][0]
     x_1, y_1, x_2, y_2 = s.T
+    print("Shape:", segmentos.shape, "Shape de s:", s.shape, "Shape de s.T:", s.T.shape)
+    print("Segmentos:", segmentos)
+    print("x_1:", x_1, "y_1:", y_1, "x_2:", x_2, "y_2:", y_2)
 
     d_y = y_2 - y_1
     d_x = x_2 - x_1
@@ -151,9 +154,9 @@ def detect_lines(frame, depth_frame):
     mascara_s = cv2.GaussianBlur(mascara, (5, 5), 0)
     bordes = cv2.Canny(mascara_s, 50, 150)
 
-    segmentos = cv2.HoughLinesP(bordes, 1, np.pi / 180, threshold=60, minLineLength=80, maxLineGap=40)
+    lineas = cv2.HoughLinesP(bordes, 1, np.pi / 180, threshold=60, minLineLength=80, maxLineGap=40)
 
-    lineas = agrupar_lineas(segmentos, h)
+    # lineas = agrupar_lineas(segmentos, h)
     for linea in lineas:
         distancia = obtener_profundidad_linea(linea, depth_frame, w, h)
 
