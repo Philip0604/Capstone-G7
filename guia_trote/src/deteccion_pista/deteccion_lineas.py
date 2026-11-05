@@ -78,11 +78,7 @@ def agrupar_lineas(segmentos, alto):
         return []
 
     # Convertir todos los segmentos a arreglos NumPy
-    s = segmentos[:, 0].astype(np.float32)
-    print("Shape:", segmentos.shape)
-    print("Shape de s:", s.shape)
-    print("Shape de s.T:", s.T.shape)
-    print("Segmentos:", segmentos)
+    s = segmentos[:][0].astype(np.float32)
     x_1, y_1, x_2, y_2 = s.T
 
     d_y = y_2 - y_1
