@@ -1,16 +1,22 @@
 import cv2
 import numpy as np
 import os
+import pyrealsense2 as rs
+
 
 in_path = os.path.join("videos", "input")
 out_path = os.path.join("videos", "output")
-VIDEO_INPUT = os.path.join(in_path, "Pista_zigzag.mp4")
-VIDEO_OUTPUT = os.path.join(out_path, "Pista_zigzag_perspectiva.mp4")
+VIDEO_ENTRADA = os.path.join(in_path, "Pista_zigzag.mp4")
+VIDEO_SALIDA = os.path.join(out_path, "Pista_zigzag_perspectiva.mp4")
 
 UMBRAL_BLANCO = 180
 TOLERANCIA_GRUPOS = 35
 MIN_LONGITUD = 35
 
+ANCHO_GRUPO = 15  # Pixeles
+MIN_SEGMENTOS_GRUPO = 5
+
+# Función que transforma la perspectiva de la imagen para ver el suelo con proporciones más claras
 def transformacion_perspectiva(frame):
     h, w = frame.shape[:2]
 
@@ -20,136 +26,169 @@ def transformacion_perspectiva(frame):
     mapeo = cv2.getPerspectiveTransform(pista, perspectiva)
 
     frame_t = cv2.warpPerspective(frame, mapeo, (w, h))
-    return frame_t
+    return frame_t, w, h
 
+# Función para calcular la posición y ángulo relativo que se tiene con respecto a la pista
+def calcular_pose_relativa(izq, der, ancho, alto, pendiente_referencia=0.0):
+    # Signos de posicion: negativo = robot a la izquierda; positivo = robot a la derecha
+    # La orientacion se expresa respecto de la calibracion inicial.
+    y_ref = alto * 0.80
+    x_robot = ancho / 2
 
-def detect_lines(frame):
-    # Líneas blancas
-    blanco_min = np.array([180, 180, 180])
-    blanco_max = np.array([250, 250, 250])
+    # Posicion de ambas lineas a la altura de referencia
+    x_izq = izq["a"] * y_ref + izq["b"]
+    x_der = der["a"] * y_ref + der["b"]
 
-    mask = cv2.inRange(frame, blanco_min, blanco_max)
+    if x_der <= x_izq:
+        return None
 
-    # Suavizado
-    mask_s = cv2.GaussianBlur(mask, (5, 5), 0)
-    edges = cv2.Canny(mask_s, 50, 150)
+    # Centro y ancho local de la pista
+    x_centro = float((x_izq + x_der) / 2)
+    ancho_pista = float(x_der - x_izq)
 
-    lineas = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60, minLineLength=80, maxLineGap=40)
+    # Posicion relativa del robot
+    error_px = float(x_robot - x_centro)
+    error_normalizado = float(error_px / (ancho_pista / 2))
 
-    resultado = frame.copy()
+    # Orientacion del centro de la pista
+    pendiente_centro = float((izq["a"] + der["a"]) / 2)
 
-    if lineas is not None:
-        for linea in lineas:
-            x1, y1, x2, y2 = linea[0]
+    angulo_centro = np.arctan(pendiente_centro)
+    angulo_referencia = np.arctan(pendiente_referencia)
 
-            # Pendiente
-            if x2 != x1:
-                pendiente = ((y2 - y1) / (x2 - x1))
+    angulo_relativo = float(angulo_centro - angulo_referencia)
 
-                # Filtrar líneas aproximadamente verticales/horizontales según el caso
-                if abs(pendiente) > 0.7:
-                    cv2.line(resultado, (x1, y1), (x2, y2), (0, 255, 0), 3)
-    return resultado
+    # Diferencia entre las pendientes de los limites
+    diferencia_pendientes = float(der["a"] - izq["a"])
 
+    return {
+        "error_lat_px": error_px,
+        "error_lat": error_normalizado,
+        "centro_pista_px": x_centro,
+        "ancho_pista_px": ancho_pista,
+        "orien_rad": angulo_relativo,
+        "orien_grados": float(np.degrees(angulo_relativo)),
+        "pend_centro": pendiente_centro,
+        "dif_pends": diferencia_pendientes
+    }
+
+# Función que toma las líneas detectadas y define 1 línea detectada por sector
 def agrupar_lineas(segmentos, alto):
     if segmentos is None:
         return []
 
+    # Convertir todos los segmentos a arreglos NumPy
+    s = segmentos[:, 0].astype(np.float32)
+    x_1, y_1, x_2, y_2 = s.T
+
+    d_y = y_2 - y_1
+    d_x = x_2 - x_1
+    longitud = np.hypot(d_x, d_y)
+
+    # Filtrar segmentos horizontales y demasiado cortos
+    validos = (np.abs(d_y) >= 1) & (longitud >= MIN_LONGITUD)
+    x_1, y_1, d_y, d_x = x_1[validos], y_1[validos], d_y[validos], d_x[validos]
+
+    if len(d_x) == 0:
+        return []
+
+    # Posicion y pendiente de cada segmento
+    pendientes = d_x / d_y
     y_ref = alto * 0.80
-    candidatos = []
+    posiciones = x_1 + pendientes * (y_ref - y_1)
 
-    for s in segmentos[:, 0]:
-        x1, y1, x2, y2 = map(float, s)
+    # Histograma: cada bin representa 5 pixeles
+    x_min = np.floor(posiciones.min() / ANCHO_GRUPO) * ANCHO_GRUPO
+    indices = np.floor((posiciones - x_min) / ANCHO_GRUPO).astype(int)
 
-        if abs(y2 - y1) < 1:
-            continue
-        if np.hypot(x2 - x1, y2 - y1) < MIN_LONGITUD:
-            continue
+    cantidad_bins = indices.max() + 1
 
-        pendiente = (x2 - x1) / (y2 - y1)
-        x_ref = x1 + pendiente * (y_ref - y1)
+    # Acumular cantidad, posiciones y pendientes
+    conteo = np.bincount(indices, minlength=cantidad_bins)
+    suma_x = np.bincount(indices, weights=posiciones, minlength=cantidad_bins)
+    suma_m = np.bincount(indices, weights=pendientes, minlength=cantidad_bins)
 
-        candidatos.append((x_ref, [x1, y1, x2, y2]))
-
-    candidatos.sort(key=lambda item: item[0])
-    grupos = []
-
-    for x_ref, extremos in candidatos:
-        if (not grupos or abs(x_ref - np.mean([p[0] for p in grupos[-1]])) > TOLERANCIA_GRUPOS):
-            grupos.append([])
-
-        grupos[-1].append((x_ref, extremos))
+    # Detectar zonas con suficientes segmentos
+    activos = np.where(conteo >= MIN_SEGMENTOS_GRUPO)[0]
 
     lineas = []
-    for grupo in grupos:
-        puntos = []
-        for _, (x1, y1, x2, y2) in grupo:
-            puntos.extend([[x1, y1], [x2, y2]])
 
-        puntos = np.array(puntos, dtype=np.float32)
-        vx, vy, x0, y0 = cv2.fitLine(puntos, cv2.DIST_L2, 0, 0.01, 0.01).flatten()
+    for i in activos:
+        x_ref = float(suma_x[i] / conteo[i])
+        m = float(suma_m[i] / conteo[i])
 
-        if abs(vy) < 1e-5:
-            continue
+        a = float(m)
+        b = float(x_ref - a * y_ref)
 
-        a = vx / vy
-        b = x0 - a * y0
+        lineas.append({"a": a, "b": b, "x_ref": x_ref, "pendiente": m, "cantidad_segmentos": int(conteo[i]), "ancho_grupo": float(ANCHO_GRUPO)})
 
-        lineas.append({"a": float(a), "b": float(b), "x_ref": float(a * y_ref + b), "cantidad_segmentos": len(grupo)})
     return sorted(lineas, key=lambda l: l["x_ref"])
 
+# Función encargada de dibujar la línea
+def dibujar_linea(frame, linea, color, etiqueta):
+    h, w = frame.shape[:2]
+    y_1, y_2 = int(h * 0.40), int(h * 0.98)
+    x_1 = int(linea["a"] * y_1 + linea["b"])
+    x_2 = int(linea["a"] * y_2 + linea["b"])
 
-def dibujar_linea(imagen, linea, color, etiqueta):
-    h, w = imagen.shape[:2]
-    y1, y2 = int(h * 0.40), int(h * 0.98)
-    x1 = int(linea["a"] * y1 + linea["b"])
-    x2 = int(linea["a"] * y2 + linea["b"])
+    # Evita dibujar coordenadas fuera de la frame.
+    x_1 = int(np.clip(x_1, 0, w - 1))
+    x_2 = int(np.clip(x_2, 0, w - 1))
 
-    # Evita dibujar coordenadas fuera de la imagen.
-    x1 = int(np.clip(x1, 0, w - 1))
-    x2 = int(np.clip(x2, 0, w - 1))
+    cv2.line(frame, (x_1, y_1), (x_2, y_2), color, 3)
+    cv2.putText(frame, etiqueta, (x_2, max(20, y_2 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-    cv2.line(imagen, (x1, y1), (x2, y2), color, 3)
-    cv2.putText(imagen, etiqueta, (x2, max(20, y2 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+# Función encargada de detectar y procesar las líneas
+def detect_lines(frame, depth_frame):
+    vista, w, h = transformacion_perspectiva(frame)
+    # Líneas blancas
+    blanco_min = np.array([180, 180, 180])
+    blanco_max = np.array([250, 250, 250])
 
+    mascara = cv2.inRange(vista, blanco_min, blanco_max)
 
-def procesar_frame(imagen):
-    h, w = imagen.shape[:2]
-    vista, _ = transformacion_perspectiva(imagen)
+    # Suavizado
+    mascara_s = cv2.GaussianBlur(mascara, (5, 5), 0)
+    bordes = cv2.Canny(mascara_s, 50, 150)
 
-    gris = cv2.cvtColor(vista, cv2.COLOR_BGR2GRAY)
-    mascara = cv2.inRange(gris, UMBRAL_BLANCO, 255)
-
-    mascara = cv2.morphologyEx(mascara, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-
-    bordes = cv2.Canny(mascara, 50, 150)
-
-    segmentos = cv2.HoughLinesP(bordes, 1, np.pi / 180, threshold=35, minLineLength=MIN_LONGITUD, maxLineGap=35)
+    segmentos = cv2.HoughLinesP(bordes, 1, np.pi / 180, threshold=60, minLineLength=80, maxLineGap=40)
 
     lineas = agrupar_lineas(segmentos, h)
-    salida = vista.copy()
-    centro_imagen = w / 2
+    for linea in lineas:
+        distancia = obtener_profundidad_linea(linea, depth_frame, w, h)
 
-    cv2.line(salida, (int(centro_imagen), 0), (int(centro_imagen), h), (255, 0, 0), 1)
+        linea["distancia"] = distancia
+    salida = vista.copy()
+    centro_frame = w / 2
+
+    cv2.line(salida, (int(centro_frame), 0), (int(centro_frame), h), (255, 0, 0), 1)
 
     # Dibuja todas las lineas representativas.
     for i, linea in enumerate(lineas):
         dibujar_linea(salida, linea, (255, 180, 0), f"L{i + 1} ({linea['cantidad_segmentos']})")
 
-    izquierdas = [l for l in lineas if l["x_ref"] < centro_imagen]
-    derechas = [l for l in lineas if l["x_ref"] > centro_imagen]
+    izquierdas = [l for l in lineas if l["x_ref"] < centro_frame]
+    derechas = [l for l in lineas if l["x_ref"] > centro_frame]
 
     opciones = [(izq, der) for izq in izquierdas for der in derechas if der["x_ref"] - izq["x_ref"] > w * 0.15]
 
     resultado = {"hay_pareja": False, "desviacion_px": None, "lineas_detectadas": len(lineas)}
 
     if opciones:
-        # Primera aproximacion: pareja que encierra el centro
-        # de la imagen con el menor ancho suficiente.
+        # Primera aproximacion: pareja que encierra el centro de la frame con el menor ancho suficiente.
         izq, der = min(opciones, key=lambda p: p[1]["x_ref"] - p[0]["x_ref"])
 
+        pose = calcular_pose_relativa(izq, der, w, h)
+
+        if pose is not None:
+            resultado.update(pose)
+
+            texto = (f"Posicion: {pose['error_lat']:+.2f} | " f"Orientacion: {pose['orien_grados']:+.1f} deg")
+
+            cv2.putText(salida, texto, (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+
         centro_pista = (izq["x_ref"] + der["x_ref"]) / 2
-        desviacion = centro_pista - centro_imagen
+        desviacion = centro_pista - centro_frame
 
         dibujar_linea(salida, izq, (0, 255, 0), "Izquierda")
         dibujar_linea(salida, der, (0, 255, 255), "Derecha")
@@ -165,14 +204,141 @@ def procesar_frame(imagen):
         cv2.putText(salida, "No se encontro una pareja valida", (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
     resultado["lineas"] = lineas
-    return resultado, salida, mascara, bordes
+    return resultado, salida
+
+# Función que detecta si el robot está acercandose o cruzando una línea de pista y decide que hacer en dicho caso
+def evaluar_recuperacion(lineas, frame_original):
+    if not lineas:
+        return {
+            "modo": "sin_lineas",
+            "accion": None
+        }
+
+    # Analizar las pendientes de las lineas detectadas
+    pendientes = np.array([linea["a"] for linea in lineas])
+
+    # Pendiente promedio de todas las lineas visibles
+    pendiente_promedio = np.mean(pendientes)
+
+    # La pendiente se expresa como dx/dy, los valores grandes corresponden a lineas mas horizontales.
+    pendiente_horizontal = 2.0
+
+    # CASO 1: aparece una linea casi horizontal
+    if np.max(np.abs(pendientes)) > pendiente_horizontal:
+        hay_pasto, proporcion_verde, _ = hay_verde(frame_original)
+
+        if hay_pasto:
+            accion = "derecha"
+        else:
+            accion = "izquierda"
+
+        return {
+            "modo": "linea_frontal",
+            "accion": accion,
+            "hay_verde": hay_pasto,
+            "proporcion_verde": proporcion_verde,
+            "pendiente_promedio": float(pendiente_promedio)
+        }
+
+    # CASO 2: deteccion normal
+    return {
+        "modo": "normal",
+        "accion": None,
+        "pendiente_promedio": float(pendiente_promedio)
+    }
+
+# Función auxiliar que, en caso de línea horizontal, define el lado al que ir según si hay pasto enfrente o no
+def hay_verde(frame, proporcion_minima=0.08):
+    # Retorna: hay_pasto: True o False; proporcion: porcentaje de pixeles verdes; mascara: mascara utilizada para depuracion
+    h, w = frame.shape[:2]
+
+    # Zona frontal de interes
+    roi = frame[int(h * 0.35):int(h * 0.75), int(w * 0.20):int(w * 0.80)]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+    # Rango inicial para verde
+    verde_min = np.array([35, 40, 40])
+    verde_max = np.array([90, 255, 255])
+
+    mascara_verde = cv2.inRange(hsv, verde_min, verde_max)
+    proporcion = np.count_nonzero(mascara_verde) / mascara_verde.size
+    hay_pasto = proporcion >= proporcion_minima
+
+    return hay_pasto, proporcion, mascara_verde
+
+# Función encargada de ver la distancia de la línea con respecto a la cámara
+def obtener_profundidad_linea(linea, depth_frame, ancho, alto):
+    distancias = []
+
+    # Solo se analiza la zona inferior de la imagen, que corresponde a la zona cercana al robot.
+    y_inicio = int(alto * 0.70)
+    y_final = int(alto * 0.93)
+
+    for y in range(y_inicio, y_final, 5):
+        x = int(linea["a"] * y + linea["b"])
+        if 0 <= x < ancho:
+            distancia = depth_frame.get_distance(x, y)
+
+            # Ignorar valores inválidos o fuera de rango
+            if 0.15 < distancia < 10.0:
+                distancias.append(distancia)
+    if not distancias:
+        return None
+    return float(np.median(distancias))
 
 
 def main():
+    # 1. Configurar el pipeline
+    pipeline = rs.pipeline()
+    config = rs.config()
+
+    # Habilitar flujos de profundidad y color
+    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+
+    # 2. Iniciar el streaming
+    pipeline.start(config)
+
+    try:
+        while True:
+            # Esperar por un par de fotogramas sincronizados (profundidad y color)
+            frames = pipeline.wait_for_frames()
+            depth_frame = frames.get_depth_frame()
+            color_frame = frames.get_color_frame()
+
+            if not depth_frame or not color_frame:
+                continue
+
+            # Convertir imágenes a arrays de NumPy
+            depth_image = np.asanyarray(depth_frame.get_data())
+            color_image = np.asanyarray(color_frame.get_data())
+
+            # Aplicar mapa de color (colormap) a la imagen de profundidad para visualizarla mejor
+            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
+
+            # Opcional: Obtener la distancia (en metros) de un píxel específico, por ejemplo el centro (320, 240)
+            distancia = depth_frame.get_distance(320, 240)
+
+            # Mostrar texto con la distancia en el centro de la imagen de color
+            cv2.putText(color_image, f'Distancia centro: {distancia:.2f} m', (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,)
+
+            # Mostrar ambas imágenes lado a lado
+            images = np.hstack((color_image, depth_colormap))
+            cv2.imshow('RealSense D435 - Color | Profundidad', images)
+
+            # Salir con la tecla 'q'
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+    finally:
+        # Detener el pipeline
+        pipeline.stop()
+        cv2.destroyAllWindows()
     cap = cv2.VideoCapture(VIDEO_ENTRADA)
 
     if not cap.isOpened():
         raise RuntimeError(f"No se pudo abrir: {VIDEO_ENTRADA}")
+
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not np.isfinite(fps) or fps <= 0:
@@ -181,11 +347,9 @@ def main():
     ancho = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     alto = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    salida_video = cv2.VideoWriter(
-        VIDEO_SALIDA,
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        fps, (ancho, alto)
-    )
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+
+    salida_video = cv2.VideoWriter(VIDEO_SALIDA, fourcc, fps, (ancho, alto))
 
     try:
         while True:
@@ -193,14 +357,14 @@ def main():
             if not ret:
                 break
 
-            resultado, vista, mascara, bordes = procesar_frame(frame)
-            salida_video.write(vista)
+            # Detectar líneas
+            resultado, detectado = detect_lines(frame, depth_frame)
 
-            print(f"Lineas: {resultado['lineas_detectadas']} | " f"Pareja: {resultado['hay_pareja']} | " f"Desviacion: {resultado['desviacion_px']}")
+            salida_video.write(detectado)
 
-            cv2.imshow("Vista perspectiva", vista)
-            cv2.imshow("Mascara blanca", mascara)
-            cv2.imshow("Bordes Canny", bordes)
+            cv2.imshow("Pista", detectado)
+
+            cv2.imshow("Normal", frame)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
@@ -215,49 +379,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-cap = cv2.VideoCapture(VIDEO_INPUT)
-
-if not cap.isOpened():
-    raise RuntimeError("No se pudo abrir el video")
-
-
-width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-fps = cap.get(cv2.CAP_PROP_FPS)
-
-fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-
-out = cv2.VideoWriter(VIDEO_OUTPUT, fourcc, fps, (width, height))
-
-
-while True:
-    ret, frame = cap.read()
-
-    if not ret:
-        break
-
-    # Bird's eye view
-    warped = perspective_transform(frame)
-
-    # Detectar líneas
-    detected = detect_lines(warped)
-
-    out.write(detected)
-
-    cv2.imshow("Pista", detected)
-
-    cv2.imshow("Normal", frame)
-    cv2.imshow("Bird Eye", warped)
-
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
-
-
-cap.release()
-out.release()
-
-cv2.destroyAllWindows()
 
 
