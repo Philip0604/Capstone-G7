@@ -80,17 +80,15 @@ def agrupar_lineas(segmentos, alto):
     # Convertir todos los segmentos a arreglos NumPy
     s = np.zeros((len(segmentos), 4), dtype=np.float32)
     for i in range(len(segmentos)):
-        print("Segmento:", segmentos[i])
         s[i][0], s[i][1], s[i][2], s[i][3] = np.array(segmentos[i])
     x_1, y_1, x_2, y_2 = s.T
-    print("x_1:", x_1, "y_1:", y_1, "x_2:", x_2, "y_2:", y_2)
     d_y = y_2 - y_1
     d_x = x_2 - x_1
     longitud = np.hypot(d_x, d_y)
 
-    # Filtrar segmentos horizontales y demasiado cortos
-    validos = (np.abs(d_y) >= 1) & (longitud >= MIN_LONGITUD)
-    x_1, y_1, d_y, d_x = x_1[validos], y_1[validos], d_y[validos], d_x[validos]
+    # # Filtrar segmentos horizontales y demasiado cortos
+    # validos = (np.abs(d_y) >= 1) & (longitud >= MIN_LONGITUD)
+    # x_1, y_1, d_y, d_x = x_1[validos], y_1[validos], d_y[validos], d_x[validos]
 
     if len(d_x) == 0:
         return []
