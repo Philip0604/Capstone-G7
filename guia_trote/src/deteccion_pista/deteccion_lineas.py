@@ -301,27 +301,6 @@ def main():
 
     try:
         while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            # Detectar líneas
-            resultado, detectado = detect_lines(frame, depth_frame)
-
-            cv2.imshow("Pista", detectado)
-
-            cv2.imshow("Normal", frame)
-
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
-
-    print(f"Video guardado en: {VIDEO_SALIDA}")
-    try:
-        while True:
             # Esperar por un par de fotogramas sincronizados (profundidad y color)
             frames = pipeline.wait_for_frames()
             depth_frame = frames.get_depth_frame()
@@ -337,7 +316,7 @@ def main():
             # Aplicar mapa de color (colormap) a la imagen de profundidad para visualizarla mejor
             depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
-            resultado, detectado = detect_lines(frame, depth_frame)
+            resultado, detectado = detect_lines(color_image, depth_frame)
             
             # Opcional: Obtener la distancia (en metros) de un píxel específico, por ejemplo el centro (320, 240)
             distancia = depth_frame.get_distance(320, 240)
