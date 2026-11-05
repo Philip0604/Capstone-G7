@@ -5,6 +5,7 @@ env/
 **/venv/
 **/.venv/
 **/env/
+.vscode/
 
 # Archivos de Python
 __pycache__/
