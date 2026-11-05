@@ -12,8 +12,6 @@ class UserTrackerNode(Node):
         super().__init__('user_tracker_node')
 
         # constantes:
-        fps_detection = 10
-        frame_detection_time = 1 / fps_detection
         model_path = "face_detection_yunet_2026may.onnx"
         camera_index = 0  # en computador: 0->camara laptop, 1->camara externa
         frame_width = 640  # RECALIBRAR RANGO DISTANCIA SI SE CAMBIA
