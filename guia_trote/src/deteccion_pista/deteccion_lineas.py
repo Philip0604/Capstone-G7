@@ -82,7 +82,7 @@ def agrupar_lineas(segmentos, alto):
     for i in range(len(segmentos)):
         print("Segmento:", segmentos[i])
         s[i][0], s[i][1], s[i][2], s[i][3] = np.array(segmentos[i])
-        print("s[0], s[1], s[2], s[3]:", s[0], s[1], s[2], s[3])
+        print("s[0], s[1], s[2], s[3]:", s[i][0], s[i][1], s[i][2], s[i][3])
     x_1, y_1, x_2, y_2 = s.T
     print("Shape:", segmentos.shape, "Shape de s:", s.shape, "Shape de s.T:", s.T.shape)
     print("Segmentos:", segmentos)
