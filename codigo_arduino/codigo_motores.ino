@@ -3,6 +3,17 @@
 #include <Arduino.h>
 #include <math.h>
 
+// librerias micro ros
+#include <micro_ros_arduino.h>
+#include <stdio.h>
+#include <rcl/rcl.h>
+#include <rcl/error_handling.h>
+#include <rclc/rclc.h>
+#include <rclc/executor.h>
+
+#include <std_msgs/msg/float32.h>
+#include <std_msgs/msg/bool.h>
+
 // PINES DE MOTORES cambiar por hardware
 const int IN1_LEFT = 2, IN2_LEFT = 3, PWM_LEFT = 4;
 const int IN1_RIGHT = 5, IN2_RIGHT = 6, PWM_RIGHT = 7;
