@@ -169,7 +169,6 @@ void setup() {
 
 // LOOP
 void loop() {
-    leerRaspberry();
 
     unsigned long ahora = millis();
 
@@ -201,6 +200,8 @@ void loop() {
     float rpmRight = deltaRight * 60.0 / (PULSOS_VUELTA_RIGHT * dt);
 
     // La Raspberry determina el sentido de la correccion.
+    errorLateral = -0.5;
+    errorAngular = 0.5;
     float correccion = KP_LATERAL * errorLateral + KP_ANGULAR * errorAngular;
 
     correccion = constrain(correccion, -RPM_CORRECCION_MAX, RPM_CORRECCION_MAX);
