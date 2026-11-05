@@ -293,12 +293,33 @@ def main():
     config = rs.config()
 
     # Habilitar flujos de profundidad y color
-    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
 
     # 2. Iniciar el streaming
     pipeline.start(config)
 
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Detectar líneas
+            resultado, detectado = detect_lines(frame, depth_frame)
+
+            cv2.imshow("Pista", detectado)
+
+            cv2.imshow("Normal", frame)
+
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
+    print(f"Video guardado en: {VIDEO_SALIDA}")
     try:
         while True:
             # Esperar por un par de fotogramas sincronizados (profundidad y color)
@@ -307,7 +328,7 @@ def main():
             color_frame = frames.get_color_frame()
 
             if not depth_frame or not color_frame:
-                continue
+                raise RuntimeError(f"No se pudo abrir la depth_frame o color_frame de la cámara RealSense D435.")
 
             # Convertir imágenes a arrays de NumPy
             depth_image = np.asanyarray(depth_frame.get_data())
@@ -316,6 +337,8 @@ def main():
             # Aplicar mapa de color (colormap) a la imagen de profundidad para visualizarla mejor
             depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
+            resultado, detectado = detect_lines(frame, depth_frame)
+            
             # Opcional: Obtener la distancia (en metros) de un píxel específico, por ejemplo el centro (320, 240)
             distancia = depth_frame.get_distance(320, 240)
 
@@ -336,45 +359,6 @@ def main():
         cv2.destroyAllWindows()
     cap = cv2.VideoCapture(VIDEO_ENTRADA)
 
-    if not cap.isOpened():
-        raise RuntimeError(f"No se pudo abrir: {VIDEO_ENTRADA}")
-
-
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if not np.isfinite(fps) or fps <= 0:
-        fps = 30.0
-
-    ancho = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    alto = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-
-    salida_video = cv2.VideoWriter(VIDEO_SALIDA, fourcc, fps, (ancho, alto))
-
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            # Detectar líneas
-            resultado, detectado = detect_lines(frame, depth_frame)
-
-            salida_video.write(detectado)
-
-            cv2.imshow("Pista", detectado)
-
-            cv2.imshow("Normal", frame)
-
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-
-    finally:
-        cap.release()
-        salida_video.release()
-        cv2.destroyAllWindows()
-
-    print(f"Video guardado en: {VIDEO_SALIDA}")
 
 
 if __name__ == "__main__":

@@ -69,16 +69,94 @@ class PIDVelocidad {
         }
 };
 
+// PID Distancia
+class PIDDistancia {
+    public:
+        float integral = 0;
+        float errorAnterior = 0;
+
+        float calcular(float objetivo, float actual, float dt) {
+
+            float error = objetivo - actual;
+            float derivada = (error - errorAnterior) / dt;
+
+            float integralNueva = integral + error * dt;
+
+            float salida = KP_DIST * error + KI_DIST * integralNueva + KD_DIST * derivada;
+
+            // Anti-windup básico.
+            if (salida >= -PWM_MAX && salida <= PWM_MAX) {
+                integral = integralNueva;
+            }
+
+            salida = KP_DIST * error + KI_DIST * integral + KD_DIST * derivada;
+            errorAnterior = error;
+            return constrain(salida, -PWM_MAX, PWM_MAX);
+        }
+        void reiniciar() {
+            integral = 0;
+            errorAnterior = 0;
+        }
+};
+PIDDistancia pidDistancia;
+
 PIDVelocidad pidLeft, pidRight;
 
 // ESTADO
 float errorLateral = 0;
 float errorAngular = 0;
+float anchoCara = 0;
+
 unsigned long ultimaOrden = 0;
 unsigned long ultimoControl = 0;
 long anteriorLeft = 0, anteriorRight = 0;
 
+bool usuarioDetectado = false;
 bool ordenRecibida = false;
+
+// VARIABLES MICRO-ROS
+rcl_allocator_t allocator;
+rclc_support_t support;
+rcl_node_t node;
+rcl_subscription_t subscriber;
+rcl_publisher_t publisher;
+rclc_executor_t executor;
+
+std_msgs__msg__Float32MultiArray mensajeControl;
+std_msgs__msg__Float32MultiArray mensajeEstado;
+
+float bufferControl[2];
+float bufferEstado[4];
+
+// ============================================================
+// CALLBACK DEL TOPIC DE CONTROL
+//
+// /control_error
+//
+// data[0] = error lateral
+// data[1] = error angular
+// ============================================================
+
+void callbackControl(const void *msgin) {
+    const std_msgs__msg__Float32MultiArray *msg =
+        (const std_msgs__msg__Float32MultiArray *)msgin;
+
+    if (msg->data.size < 2) return;
+
+    float lat = msg->data.data[0];
+    float ang = msg->data.data[1];
+
+    if (isfinite(lat) && isfinite(ang) &&
+        lat >= -1.0 && lat <= 1.0 &&
+        ang >= -1.0 && ang <= 1.0) {
+
+        errorLateral = lat;
+        errorAngular = ang;
+
+        ultimaOrden = millis();
+        ordenRecibida = true;
+    }
+}
 
 // MOTORES
 void moverMotor(int in1, int in2, int pwm, int velocidad) {
@@ -164,12 +242,57 @@ void setup() {
 
     Serial.begin(115200);
     detenerMotores();
+
+    // MICRO-ROS
+    Serial.begin(115200);
+    set_microros_serial_transports(Serial);
+    delay(2000);
+
+    allocator = rcl_get_default_allocator();
+
+    rclc_support_init(&support, 0, NULL, &allocator);
+
+    rclc_node_init_default(&node, "control_motores", "", &support);
+
+    // Subscriber
+    rclc_subscription_init_default(
+        &subscriber,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
+        "/control_error"
+    );
+
+    // ----------------------------
+    // Publisher
+    // ----------------------------
+
+    rclc_publisher_init_default(
+        &publisher,
+        &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
+        "/motor_status"
+    );
+
+    // CONFIGURACIÓN DE MENSAJES
+    mensajeControl.data.data = bufferControl;
+    mensajeControl.data.capacity = 2;
+    mensajeControl.data.size = 2;
+
+    mensajeEstado.data.data = bufferEstado;
+    mensajeEstado.data.capacity = 4;
+    mensajeEstado.data.size = 4;
+
+    // EXECUTOR
+    rclc_executor_init(&executor, &support.context, 1, &allocator);
+    rclc_executor_add_subscription(&executor, &subscriber, &mensajeControl, &callbackControl, ON_NEW_DATA);
+
     ultimoControl = millis();
 }
 
 // LOOP
 void loop() {
-    leerRaspberry();
+    // Procesar mensajes ROS 2 entrantes
+    rclc_executor_spin_some(&executor, RCL_MS_TO_NS(5));
 
     unsigned long ahora = millis();
 
