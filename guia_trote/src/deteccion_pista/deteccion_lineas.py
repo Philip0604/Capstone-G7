@@ -80,7 +80,10 @@ def agrupar_lineas(segmentos, alto):
     # Convertir todos los segmentos a arreglos NumPy
     s = np.zeros((len(segmentos), 4), dtype=np.float32)
     for i in range(len(segmentos)):
-        s[i] = np.array(segmentos[i][0])
+        s[0] = np.array(segmentos[i][0][0])
+        s[1] = np.array(segmentos[i][0][1])
+        s[2] = np.array(segmentos[i][0][2])
+        s[3] = np.array(segmentos[i][0][3])
     x_1, y_1, x_2, y_2 = s.T
     print("Shape:", segmentos.shape, "Shape de s:", s.shape, "Shape de s.T:", s.T.shape)
     print("Segmentos:", segmentos)
