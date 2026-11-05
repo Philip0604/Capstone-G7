@@ -349,6 +349,8 @@ def main():
             images = np.hstack((color_image, depth_colormap))
             cv2.imshow('RealSense D435 - Color | Profundidad', images)
 
+            cv2.imshow("Pista", detectado)
+
             # Salir con la tecla 'q'
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
