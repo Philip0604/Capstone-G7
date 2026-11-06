@@ -12,7 +12,6 @@ class GPSNode(Node):
         # constantes:
         port = "/dev/ttyACM0"  # probar port en rpi
         baud = 9600
-        self.gps = serial.Serial(port, baud)
 
         # variables
         self.m_s = 0
@@ -20,6 +19,8 @@ class GPSNode(Node):
         self.lon = 0
         self.old_pos = (0, 0)
         self.new_pos = (0, 0)
+
+        self.gps = serial.Serial(port, baud)
 
         # este nodo publica la distancia recorrida desde la ultima vez al topico /distance_traveled
         self.distance_pub = self.create_publisher(Float32,"/distance_traveled", 10)
