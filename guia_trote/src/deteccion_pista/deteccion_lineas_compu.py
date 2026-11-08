@@ -88,8 +88,8 @@ def agrupar_lineas(segmentos, alto):
         s[i][0], s[i][1], s[i][2], s[i][3] = np.array(segmentos[i])
     x_1, y_1, x_2, y_2 = s.T
     d_y = y_2 - y_1
+    d_y[d_y == 0] = 1e-6  # Evitar división por cero
     d_x = x_2 - x_1
-    print (d_x, d_y)
     longitud = np.hypot(d_x, d_y)
 
     # # Filtrar segmentos horizontales y demasiado cortos
