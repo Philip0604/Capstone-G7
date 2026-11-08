@@ -108,7 +108,6 @@ def agrupar_lineas(segmentos, alto):
     indices = np.floor((posiciones - x_min) / ANCHO_GRUPO).astype(int)
 
     cantidad_bins = constrain(indices.max(), 0) + 1
-    print(f"Cantidad de bins: {cantidad_bins}, cantidad de segmentos: {len(segmentos)}")
 
     # Acumular cantidad, posiciones y pendientes
     conteo = np.bincount(indices, minlength=cantidad_bins)
