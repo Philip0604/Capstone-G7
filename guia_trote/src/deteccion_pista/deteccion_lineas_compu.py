@@ -284,7 +284,10 @@ def obtener_profundidad_linea(linea, depth_frame, ancho, alto):
     for y in range(y_inicio, y_final, 5):
         x = int(linea["a"] * y + linea["b"])
         if 0 <= x < ancho:
-            distancia = depth_frame.get_distance(x, y)
+            if isinstance(depth_frame, np.ndarray):
+                distancia = depth_frame[y, x]  # Convertir a metros usando la escala de profundidad
+            else:
+                distancia = depth_frame.get_distance(x, y)
 
             # Ignorar valores inválidos o fuera de rango
             if 0.15 < distancia < 10.0:
