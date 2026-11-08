@@ -301,6 +301,7 @@ def main():
     depth_image = None
     cap = None
     out = None
+    pipeline = None
     if depth_image is None:
         cap = cv2.VideoCapture(VIDEO_ENTRADA)
 
