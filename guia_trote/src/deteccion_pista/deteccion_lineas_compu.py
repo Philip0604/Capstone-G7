@@ -89,6 +89,7 @@ def agrupar_lineas(segmentos, alto):
     x_1, y_1, x_2, y_2 = s.T
     d_y = y_2 - y_1
     d_x = x_2 - x_1
+    print (d_x, d_y)
     longitud = np.hypot(d_x, d_y)
 
     # # Filtrar segmentos horizontales y demasiado cortos
