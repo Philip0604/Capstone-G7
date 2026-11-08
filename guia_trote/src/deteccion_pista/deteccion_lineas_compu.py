@@ -298,11 +298,11 @@ def obtener_profundidad_linea(linea, depth_frame, ancho, alto):
 
 
 def main():
-    depth_image = None
+    realsense = False  # Cambiar a False para usar un video de entrada en lugar de la cámara RealSense
     cap = None
     out = None
     pipeline = None
-    if depth_image is None:
+    if not realsense:
         cap = cv2.VideoCapture(VIDEO_ENTRADA)
 
         if not cap.isOpened():
@@ -328,7 +328,7 @@ def main():
 
     try:
         while True:
-            if depth_image is None:
+            if not realsense:
                 ret, color_image = cap.read()
                 depth_image = np.zeros_like(color_image[:, :, 0], dtype=np.uint16)  # Imagen de profundidad simulada
                 depth_frame = np.zeros_like(color_image[:, :, 0], dtype=np.uint16)  # No hay frame de profundidad real en este caso
