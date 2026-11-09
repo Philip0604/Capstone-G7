@@ -17,7 +17,6 @@ ANCHO_GRUPO = 15  # Pixeles
 MIN_SEGMENTOS_GRUPO = 5
 
 def constrain(val, min_val):
-
     if val < min_val: return min_val
     return val
 
@@ -216,10 +215,7 @@ def detect_lines(frame, depth_frame):
 # Función que detecta si el robot está acercandose o cruzando una línea de pista y decide que hacer en dicho caso
 def evaluar_recuperacion(lineas, frame_original):
     if not lineas:
-        return {
-            "modo": "sin_lineas",
-            "accion": None
-        }
+        return {"modo": "sin_lineas", "accion": None}
 
     # Analizar las pendientes de las lineas detectadas
     pendientes = np.array([linea["a"] for linea in lineas])
@@ -357,7 +353,6 @@ def main():
 
             out.write(detectado)
             cv2.imshow("Pista", detectado)
-            cv2.imshow("Normal", color_image)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 

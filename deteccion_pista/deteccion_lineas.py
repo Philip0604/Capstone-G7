@@ -17,7 +17,6 @@ ANCHO_GRUPO = 15  # Pixeles
 MIN_SEGMENTOS_GRUPO = 5
 
 def constrain(val, min_val):
-
     if val < min_val: return min_val
     return val
 
@@ -88,6 +87,7 @@ def agrupar_lineas(segmentos, alto):
         s[i][0], s[i][1], s[i][2], s[i][3] = np.array(segmentos[i])
     x_1, y_1, x_2, y_2 = s.T
     d_y = y_2 - y_1
+    d_y[d_y == 0] = 1e-6  # Evitar división por cero
     d_x = x_2 - x_1
     longitud = np.hypot(d_x, d_y)
 
@@ -215,10 +215,7 @@ def detect_lines(frame, depth_frame):
 # Función que detecta si el robot está acercandose o cruzando una línea de pista y decide que hacer en dicho caso
 def evaluar_recuperacion(lineas, frame_original):
     if not lineas:
-        return {
-            "modo": "sin_lineas",
-            "accion": None
-        }
+        return {"modo": "sin_lineas", "accion": None}
 
     # Analizar las pendientes de las lineas detectadas
     pendientes = np.array([linea["a"] for linea in lineas])
@@ -325,15 +322,13 @@ def main():
             resultado, detectado = detect_lines(color_image, depth_frame)
             
             # Opcional: Obtener la distancia (en metros) de un píxel específico, por ejemplo el centro (320, 240)
-            distancia = depth_frame.get_distance(320, 240)
-
+            # distancia = depth_frame.get_distance(320, 240)
             # Mostrar texto con la distancia en el centro de la imagen de color
-            cv2.putText(color_image, f'Distancia centro: {distancia:.2f} m', (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,)
+            # cv2.putText(color_image, f'Distancia centro: {distancia:.2f} m', (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2,)
 
             # Mostrar ambas imágenes lado a lado
             images = np.hstack((color_image, depth_colormap))
             cv2.imshow('RealSense D435 - Color | Profundidad', images)
-
             cv2.imshow("Pista", detectado)
 
             # Salir con la tecla 'q'
@@ -344,9 +339,6 @@ def main():
         # Detener el pipeline
         pipeline.stop()
         cv2.destroyAllWindows()
-    cap = cv2.VideoCapture(VIDEO_ENTRADA)
-
-
 
 if __name__ == "__main__":
     main()
