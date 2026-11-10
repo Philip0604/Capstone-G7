@@ -1,6 +1,7 @@
+
 from setuptools import find_packages, setup
+from glob import glob
 import os
-import glob
 
 package_name = 'deteccion_obstaculos_pkg'
 
@@ -18,16 +19,13 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='grupo7',
-    maintainer_email='capstonerobotica@gmail.com',
-    description='TODO: Package description',
-    license='TODO: License declaration',
-    extras_require={
-        'test': [
-            'pytest',
-        ],
-    },
+    maintainer_email='grupo7@example.com',
+    description='Nodo de deteccion de obstaculos del robot guia.',
+    license='TODO',
+    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'deteccion_obstaculos_node = deteccion_obstaculos_pkg.deteccion_obstaculos_node:main',
         ],
     },
 )
