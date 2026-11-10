@@ -1,7 +1,7 @@
 from setuptools import find_packages, setup
 import os
-import glob
-
+from glob import glob
+    
 package_name = 'robot_bringup'
 
 setup(
