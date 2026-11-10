@@ -28,6 +28,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'nombre_nodo = deteccion_pista_pkg.track_detection_node:main',
         ],
     },
 )

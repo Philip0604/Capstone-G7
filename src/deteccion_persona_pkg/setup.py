@@ -28,6 +28,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'nombre_nodo = deteccion_persona_pkg.face_detection_node:main',
         ],
     },
 )
