@@ -28,7 +28,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'nombre_nodo = audio_pkg.audio_node:main',
+            'audio_node = audio_pkg.audio_node:main',
         ],
     },
 )

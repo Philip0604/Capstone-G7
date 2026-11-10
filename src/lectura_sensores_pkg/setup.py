@@ -28,7 +28,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'nombre_nodo = lectura_sensores_pkg.realsense_node:main',
+            'realsense_node = lectura_sensores_pkg.realsense_node:main',
         ],
     },
 )

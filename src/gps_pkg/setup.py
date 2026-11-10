@@ -28,7 +28,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'nombre_nodo = gps_pkg.gps_node:main',
+            'gps_node = gps_pkg.gps_node:main',
         ],
     },
 )
