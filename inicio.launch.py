@@ -27,19 +27,19 @@ def generate_launch_description():
         #     output="screen"
         # )
 
-        Node(
-            package="nodo_principal",
-            executable="main_node",
-            name="main_node",
-            output="screen"
-        ),
+        # Node(
+        #     package="nodo_principal",
+        #     executable="main_node",
+        #     name="main_node",
+        #     output="screen"
+        # ),
 
-        Node(
-            package="arduino_interface",
-            executable="arduino_node",
-            name="arduino_node",
-            output="screen"
-        ),
+        # Node(
+        #     package="arduino_interface",
+        #     executable="arduino_node",
+        #     name="arduino_node",
+        #     output="screen"
+        # ),
 
         Node(
             package="deteccion_persona",
