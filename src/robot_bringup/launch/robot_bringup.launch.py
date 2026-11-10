@@ -25,22 +25,22 @@ def generate_launch_description():
     return LaunchDescription([
 
         # Adquisición de imágenes
-        incluir_launch('lectura_sensores_pkg', '__init__.py'),
+        incluir_launch('lectura_sensores_pkg', 'lectura_sensores.launch.py'),
 
         # Percepción
-        incluir_launch('deteccion_persona_pkg', '__init__.py'),
-        incluir_launch('deteccion_pista_pkg', '__init__.py'),
-        # incluir_launch('deteccion_obstaculos_pkg', '__init__.py'),
+        incluir_launch('deteccion_persona_pkg', 'deteccion_persona.launch.py'),
+        incluir_launch('deteccion_pista_pkg', 'deteccion_pista.launch.py'),
+        # incluir_launch('deteccion_obstaculos_pkg', 'deteccion_obstaculos.launch.py'),
 
         # GPS y navegación
-        incluir_launch('gps_pkg', '__init__.py'),
-        # incluir_launch('navegacion_pkg', '__init__.py'),
+        incluir_launch('gps_pkg', 'gps.launch.py'),
+        # incluir_launch('navegacion_pkg', 'navegacion.launch.py'),
 
         # Control y comunicación
-        # incluir_launch('control_pkg', '__init__.py'),
-        # incluir_launch('arduino_pkg', '__init__.py'),
+        # incluir_launch('control_pkg', 'control.launch.py'),
+        # incluir_launch('arduino_pkg', 'arduino.launch.py'),
 
         # Interacción auditiva
-        incluir_launch('audio_pkg', '__init__.py'),
+        incluir_launch('audio_pkg', 'audio.launch.py'),
 
     ])
