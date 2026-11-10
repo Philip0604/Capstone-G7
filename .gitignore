@@ -21,4 +21,9 @@ Extra/
 *.mp4
 *.zip
 
+# Ignorar archivos de ros2 workspace
+build/
+install/
+log/
+
 datasets/
