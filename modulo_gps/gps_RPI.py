@@ -2,10 +2,10 @@ import serial
 from geopy import distance
 import time
 
-port = "COM3"  # "/dev/ttyACM0" para linux
+# port especifico para el gps (no cambia)
+port = "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_7_-_GPS_GNSS_Receiver-if00"
 baud = 9600
 gps = serial.Serial(port, baud)
-interval = 1 #
 
 m_s = 0
 lat = 0
@@ -35,12 +35,14 @@ while True:
     msg = gps.readline().decode("utf-8").strip().split(",")
 
     if msg[0] == "$GPVTG":
-        m_s = round(float(msg[7])/3.6, 5) # velocidad aproximada en m/s
+        if msg[7] != "":
+            m_s = round(float(msg[7])/3.6, 5) # velocidad aproximada en m/s
     if msg[0] == "$GPGGA":
-        old_pos = (lat, lon)
-        lat = ddm_to_dd("lat", msg[2:4])
-        lon = ddm_to_dd("lat", msg[4:6])
-        new_pos = (lat, lon)
+        if not("" in msg[2:4] or "" in msg[4:6]):
+            old_pos = (lat, lon)
+            lat = ddm_to_dd("lat", msg[2:4])
+            lon = ddm_to_dd("lat", msg[4:6])
+            new_pos = (lat, lon)
 
     advance = round(distance.distance(old_pos, new_pos).m, 5)
     if msg[0] == "$GPGGA":

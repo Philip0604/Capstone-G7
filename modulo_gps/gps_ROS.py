@@ -10,7 +10,8 @@ class GPSNode(Node):
         super().__init__("gps_node")
 
         # constantes:
-        port = "/dev/ttyACM0"  # probar port en rpi
+        # port especifico para el gps (no cambia):
+        port = "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_7_-_GPS_GNSS_Receiver-if00"
         baud = 9600
 
         # variables
@@ -50,16 +51,19 @@ class GPSNode(Node):
 
     def get_gps_info(self):
         msg = self.gps.readline().decode("utf-8").strip().split(",")
-    
+        
         if msg[0] == "$GPVTG":
-            self.m_s = round(float(msg[7])/3.6, 5) # velocidad aproximada en m/s
+            if msg[7] != "":
+                self.m_s = round(float(msg[7])/3.6, 5) # velocidad aproximada en m/s
         if msg[0] == "$GPGGA":
-            self.old_pos = (self.lat, self.lon)
-            self.lat = self.ddm_to_dd("lat", msg[2:4])
-            self.lon = self.ddm_to_dd("lat", msg[4:6])
-            self.new_pos = (self.lat, self.lon)
+            if not("" in msg[2:4] or "" in msg[4:6]):
+                self.old_pos = (self.lat, self.lon)
+                self.lat = self.ddm_to_dd("lat", msg[2:4])
+                self.lon = self.ddm_to_dd("lat", msg[4:6])
+                self.new_pos = (self.lat, self.lon)
     
         advance = round(distance.distance(self.old_pos, self.new_pos).m, 5)
+        
         if msg[0] == "$GPGGA": # para asegurarse que pase 1 vez por segundo (freq de gps)
             msg1 = Float32()
             msg2 = Float32()
