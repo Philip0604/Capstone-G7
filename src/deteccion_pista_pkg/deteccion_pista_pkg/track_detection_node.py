@@ -13,8 +13,8 @@ class LaneDetectionNode(Node):
         super().__init__("lane_detection_node")
 
         self.bridge = CvBridge()
-        self.color_sub = self.create_subscription(Image, "/camera/color/image", self.image_callback, 6)
-        self.depth_sub = self.create_subscription(Image, "/camera/depth/image", self.image_callback, 6)
+        self.color_sub = self.create_subscription(self, Image, "/camera/color/image")
+        self.depth_sub = self.create_subscription(self, Image, "/camera/depth/image")
         self.get_logger().info("Nodo de detección de pista iniciado")
         self.error_publisher = self.create_publisher(Float32, "/pista/error_lateral", 10)
         # Sincronizador
