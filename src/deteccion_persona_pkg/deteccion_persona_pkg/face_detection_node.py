@@ -64,10 +64,10 @@ class UserTrackerNode(Node):
         if faces is not None:
             for face in faces:
                 box = face[0:4].astype(np.int32)
-                faces_widths.append(box[2])
+                self.faces_widths.append(box[2])
         
-        nearest_face_width = max(faces_widths, default=None)  # detecta a persona mas cercana a camara
-        faces_widths = list()
+        nearest_face_width = max(self.faces_widths, default=None)  # detecta a persona mas cercana a camara
+        self.faces_widths = list()
         
         if nearest_face_width == None:
             if self.face_detected == True:

@@ -9,7 +9,8 @@ const int PIN_ENC_R_B = 5;   // ENC_R_B -> GIGA D5   encoder B de motor derecho
 
 const int VEL_STOP   = 0;   // -127 max reversa, 0 stop, 127 max avance
 const int VEL_RAPIDO = 120;
-const int VEL_LENTO  = 50;
+const int VEL_LENTO  = 80;
+const int VEL_MEDIO  = 40;
 
 int velActual = VEL_STOP;
 int velObjetivo = VEL_STOP;
@@ -43,7 +44,7 @@ void actualizarLed() {
 
 void setup() {
   Serial.begin(115200); // 9600?  serial para consola (printf)
-  Serial2.begin(9600); // serial1 para motores. 9600 es el rate default (se cambia en DEScribe)
+  Serial2.begin(9600); // serial2 para motores. 9600 es el rate default (se cambia en DEScribe)
   Serial3.begin(115200); // 9600?  serial3 para esp
   //ST.setTimeout(1000); // para que si no llegan comandos nuevos dentro de 1 segundo se detienen los motores (settimeout(0) para desactivar)
                        // un delay en el codigo puede activar el timeout!!
@@ -73,7 +74,7 @@ void loop() {
     int vel = VEL_STOP;
     switch (c) {
       case 'A': vel = VEL_RAPIDO; break;
-      case 'B':                  // hace lo mismo que C
+      case 'B': vel = VEL_MEDIO;  break;
       case 'C': vel = VEL_LENTO;  break;
       case 'D': vel = VEL_STOP;   break;
       default:  break;
@@ -99,7 +100,7 @@ void loop() {
     if (velActual < velObjetivo)   velActual = min(velActual + VEL_RAMPA, velObjetivo);
     else                           velActual = max(velActual - VEL_RAMPA, velObjetivo);
     ST.motor(1, velActual);
-    ST.motor(2, velActual / 2);
+    ST.motor(2, velActual);
     actualizarLed();
   }
 

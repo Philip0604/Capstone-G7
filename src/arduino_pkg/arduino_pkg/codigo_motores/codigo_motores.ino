@@ -14,16 +14,18 @@
 
 #include <std_msgs/msg/float32.h>
 #include <std_msgs/msg/bool.h>
+#include <std_msgs/msg/Int32.h>
+
 
 // DRIVER MOTORES
 Sabertooth ST(128, Serial2);   // se crea "ST" que representa el sabertooth con address 128 y en serial2 (deberia ser serial1, pero parece que no xd)
 // DIP sw: 1-OFF 2-OFF 3-OFF 4-ON 5-ON 6-ON
 // 1,2 OFF: libreria sabertooth, 3 OFF: proteccion bateria, 4,5 ON: comunicacion gpio
-// 6 ON: emergency stop off -> (A1 y A2: si reciben un high) detenerse si un enable se desactiva. 
+// 6 ON: emergency stop off -> detenerse si un enable se desactiva (A1 y A2 deben estar high para que M1 y M2 funcionen)
 
 // PARAMETROS DE CONTROL
-const int VEL_BASE = 100;    // -127 full reversa, 0 stop, 127 full avance
-const int VEL_MAX = 125;
+const int VEL_BASE = 40;    // -127 full reversa, 0 stop, 127 full avance
+const int VEL_MAX = 120;
 const int VEL_CORRECCION_MAX = 10;
 
 // IMPORTANTE: cambiar pulsos por vuelta
@@ -48,8 +50,11 @@ const int PIN_ENC_L_B = 3;   // ENC_L_B -> GIGA D3   encoder B de motor izquierd
 const int PIN_ENC_R_A = 4;   // ENC_R_A -> GIGA D4   encoder A de motor derecho
 const int PIN_ENC_R_B = 5;   // ENC_R_B -> GIGA D5   encoder B de motor derecho
 
-volatile long cuentaL = 0;
+volatile long cuentaL = 0;   // cuenta actual de los encoders R y L
 volatile long cuentaR = 0;
+
+long anteriorL = 0;    // cuenta pasada de los encoders R y L
+long anteriorR = 0;
 
 void encL() { cuentaL += digitalRead(PIN_ENC_L_B) ? 1 : -1; }  // a cuentaL se le suma el resultado de: if el pin esta high (1), entonces es 1 y si no entonces es -1
 void encR() { cuentaR += digitalRead(PIN_ENC_R_B) ? 1 : -1; }
@@ -130,16 +135,18 @@ long anteriorLeft = 0, anteriorRight = 0;
 bool usuarioDetectado = false;
 bool ordenRecibida = false;
 
-// VARIABLES MICRO-ROS
-rcl_allocator_t allocator;
-rclc_support_t support;
-rcl_node_t node;
-rcl_subscription_t subscriber;
-rcl_publisher_t publisher;
-rclc_executor_t executor;
 
-std_msgs__msg__Float32MultiArray mensajeControl;
-std_msgs__msg__Float32MultiArray mensajeEstado;
+// VARIABLES MICRO-ROS
+rcl_node_t nodo_arduino;
+rclc_support_t ros_support;
+rcl_allocator_t ros_allocator;
+rclc_executor_t ros_executor;
+
+rcl_subscription_t sub_target_speed;
+rcl_publisher_t pub_remote_btn;
+
+std_msgs__msg__Float32 msg_recv_speed;
+std_msgs__msg__Bool msg_pub_btn;
 
 float bufferControl[2];
 float bufferEstado[4];
@@ -154,8 +161,8 @@ float bufferEstado[4];
 // ============================================================
 
 void callbackControl(const void *msgin) {
-    const std_msgs__msg__Float32MultiArray *msg =
-        (const std_msgs__msg__Float32MultiArray *)msgin;
+    const std_msgs__msg__Float32 *msg =
+        (const std_msgs__msg__Float32 *)msgin;
 
     if (msg->data.size < 2) return;
 
@@ -174,94 +181,26 @@ void callbackControl(const void *msgin) {
     }
 }
 
-// MOTORES
-void moverMotor(int in1, int in2, int pwm, int velocidad) {
-    velocidad = constrain(velocidad, -255, 255);
-
-    if (velocidad > 0) {
-        digitalWrite(in1, HIGH);
-        digitalWrite(in2, LOW);
-        analogWrite(pwm, velocidad);
-    } else if (velocidad < 0) {
-        digitalWrite(in1, LOW);
-        digitalWrite(in2, HIGH);
-        analogWrite(pwm, -velocidad);
-    } else {
-        digitalWrite(in1, LOW);
-        digitalWrite(in2, LOW);
-        analogWrite(pwm, 0);
-    }
-}
-
-void detenerMotores() {
-    moverMotor(IN1_LEFT, IN2_LEFT, PWM_LEFT, 0);
-    moverMotor(IN1_RIGHT, IN2_RIGHT, PWM_RIGHT, 0);
-}
-
-// COMUNICACION RASPBERRY
-void leerRaspberry() {
-    static String buffer = "";
-
-    while (Serial.available()) {
-        char c = Serial.read();
-
-        if (c == '\n') {
-            buffer.trim();
-
-            if (buffer == "STOP") {
-                detenerMotores();
-                ordenRecibida = false;
-                errorLateral = 0;
-                errorAngular = 0;
-            } else {
-                int separador = buffer.indexOf(',');
-
-                if (separador > 0) {
-                    float lat = buffer.substring(0, separador).toFloat();
-                    float ang = buffer.substring(separador + 1).toFloat();
-
-                    if (isfinite(lat) && isfinite(ang) && lat >= -1.0 && lat <= 1.0 && ang >= -1.0 && ang <= 1.0) {
-                        errorLateral = lat;
-                        errorAngular = ang;
-                        ultimaOrden = millis();
-                        ordenRecibida = true;
-                    }
-                }
-            }
-
-            buffer = "";
-        } else if (c != '\r') {
-            if (buffer.length() < 60) {
-                buffer += c;
-            } else {
-                buffer = "";
-            }
-        }
-    }
-}
-
 
 // SETUP
 void setup() {
-    pinMode(IN1_LEFT, OUTPUT);
-    pinMode(IN2_LEFT, OUTPUT);
-    pinMode(PWM_LEFT, OUTPUT);
-    pinMode(IN1_RIGHT, OUTPUT);
-    pinMode(IN2_RIGHT, OUTPUT);
-    pinMode(PWM_RIGHT, OUTPUT);
+    pinMode(PIN_ENC_L_A, INPUT);
+    pinMode(PIN_ENC_L_B, INPUT);
+    pinMode(PIN_ENC_R_A, INPUT);
+    pinMode(PIN_ENC_R_B, INPUT);
+    attachInterrupt(digitalPinToInterrupt(PIN_ENC_L_A), encL, RISING);
+    attachInterrupt(digitalPinToInterrupt(PIN_ENC_R_A), encR, RISING);
 
-    pinMode(ENC_LEFT, INPUT_PULLUP);
-    pinMode(ENC_RIGHT, INPUT_PULLUP);
-
-    attachInterrupt(digitalPinToInterrupt(ENC_LEFT), contarLeft, RISING);
-    attachInterrupt(digitalPinToInterrupt(ENC_RIGHT), contarRight, RISING);
-
-    Serial.begin(115200);
-    detenerMotores();
+    // Serial reservado para ros (no se le hace begin y no se puede usar para imprimir)
+    Serial2.begin(9600); // serial2 para motores. 9600 es el default   (pin D18 arduino conectado a S1 sabertooth)
+    Serial3.begin(115200); // serial3 para comunicacion esp            (pin D17 esp con arduino o con raspi)
+    //ST.setTimeout(1000); // para que si no llegan comandos nuevos dentro de 1 segundo se detienen los motores (settimeout(0) para desactivar)
+                       // un delay en el codigo puede activar el timeout!!
+    ST.motor(1,0);  // se detienen los motores
+    ST.motor(2,0);
 
     // MICRO-ROS
-    Serial.begin(115200);
-    set_microros_serial_transports(Serial);
+    set_microros_serial_transports(Serial);  // solo usar serial para microros y no serial.print
     delay(2000);
 
     allocator = rcl_get_default_allocator();
@@ -278,10 +217,7 @@ void setup() {
         "/control_error"
     );
 
-    // ----------------------------
     // Publisher
-    // ----------------------------
-
     rclc_publisher_init_default(
         &publisher,
         &node,
@@ -305,6 +241,9 @@ void setup() {
     ultimoControl = millis();
 }
 
+
+
+
 // LOOP
 void loop() {
     // Procesar mensajes ROS 2 entrantes
@@ -325,17 +264,6 @@ void loop() {
     float dt = (ahora - ultimoControl) / 1000.0;
     ultimoControl = ahora;
 
-    // Leer contadores de forma atomica.
-    noInterrupts();
-    long cuentaLeft = pulsosLeft;
-    long cuentaRight = pulsosRight;
-    interrupts();
-
-    long deltaLeft = cuentaLeft - anteriorLeft;
-    long deltaRight = cuentaRight - anteriorRight;
-    anteriorLeft = cuentaLeft;
-    anteriorRight = cuentaRight;
-
     float rpmLeft = deltaLeft * 60.0 / (PULSOS_VUELTA_LEFT * dt);
     float rpmRight = deltaRight * 60.0 / (PULSOS_VUELTA_RIGHT * dt);
 
@@ -348,22 +276,26 @@ void loop() {
     float objetivoRight = constrain(RPM_BASE - correccion, 0.0, RPM_MAX);
 
     // PID independiente para cada rueda.
-    int pwmLeft = pidLeft.calcular(objetivoLeft, rpmLeft, dt);
-    int pwmRight = pidRight.calcular(objetivoRight, rpmRight, dt);
+    int velLeft = pidLeft.calcular(objetivoLeft, rpmLeft, dt);
+    int velRight = pidRight.calcular(objetivoRight, rpmRight, dt);
 
-    // Conserva el sentido original: izquierda positiva, derecha negativa para avanzar.
-    moverMotor(IN1_LEFT, IN2_LEFT, PWM_LEFT, pwmLeft);
-    moverMotor(IN1_RIGHT, IN2_RIGHT, PWM_RIGHT, -pwmRight);
+    // para avanzar, ambos valores son positivos
+    ST.motor(1, velLeft);
+    ST.motor(2, velRight);
 
-    // Diagnostico por USB Serial.
-    Serial.print("RPM L: ");
-    Serial.print(rpmLeft);
-    Serial.print(" / ");
-    Serial.print(objetivoLeft);
-    Serial.print(" | RPM R: ");
-    Serial.print(rpmRight);
-    Serial.print(" / ");
-    Serial.print(objetivoRight);
-    Serial.print(" | Correccion: ");
-    Serial.println(correccion);
+    // se leen encoders cada 0.1 segundos
+    static uint32_t ultimo_read_enc = 0;
+    if (millis() - ultimo_read_enc >= 100) {
+        ultimo_read_enc = millis();
+        noInterrupts();
+        long l = cuentaL, r = cuentaR;
+        interrupts();
+    }
+    long deltaL = cuentaL - anteriorL;  // se calcula que tanto aumento el valor de los encoders
+    long deltaR = cuentaR - anteriorR;
+    anteriorL = cuentaL;
+    anteriorR = cuentaR;
 }
+
+
+
