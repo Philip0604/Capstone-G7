@@ -12,7 +12,7 @@ class LaneDetectionNode(Node):
     def __init__(self):
         super().__init__("lane_detection_node")
 
-        self.bridge = CvBridge()
+        # self.bridge = CvBridge()
         self.color_sub = message_filters.Subscriber(self, Image, "/camera/color/image")
         self.depth_sub = message_filters.Subscriber(self, Image, "/camera/depth/image")
         self.get_logger().info("Nodo de detección de pista iniciado")

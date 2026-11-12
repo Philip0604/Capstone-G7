@@ -13,7 +13,7 @@ class CameraNode(Node):
         self.color_publisher = self.create_publisher(Image, "/camera/color/image", 10)
         self.depth_publisher = self.create_publisher(Image, "/camera/depth/image", 10)
         
-        self.bridge = CvBridge() # Conversor OpenCV <-> ROS
+        # self.bridge = CvBridge() # Conversor OpenCV <-> ROS
 
         # Configuración de RealSense
         self.pipeline = rs.pipeline()
