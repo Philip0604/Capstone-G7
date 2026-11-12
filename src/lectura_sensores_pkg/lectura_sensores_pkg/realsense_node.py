@@ -40,6 +40,8 @@ class CameraNode(Node):
         # Convertir a NumPy
         color_image = np.asanyarray(color_frame.get_data())
         depth_image = np.asanyarray(depth_frame.get_data())
+        self.get_logger().info(f"Color image: shape={color_image.shape}, dtype={color_image.dtype}")
+        self.get_logger().info(f"Depth image: shape={depth_image.shape}, dtype={depth_image.dtype}")
 
         # Convertir a mensajes ROS
         color_msg = self.bridge.cv2_to_imgmsg(color_image, encoding="bgr8")
