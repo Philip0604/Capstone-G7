@@ -71,7 +71,7 @@ class UserTrackerNode(Node):
         
         if nearest_face_width == None:
             if self.face_detected == True:
-                no_face_timer = time.monotonic()
+                self.no_face_timer = time.monotonic()
                 self.near_widths.clear()   # para no mantener valores antiguos
             self.face_detected = False
         else:
@@ -84,7 +84,7 @@ class UserTrackerNode(Node):
                 self.width_avg = int(sum(self.near_widths) / 10)
         
         if not self.face_detected:
-            elapsed = time.monotonic() - no_face_timer
+            elapsed = time.monotonic() - self.no_face_timer
             if elapsed > 3:
                 self.get_logger().warn("No se detecta al usuario")
                 self.user_detected = False
