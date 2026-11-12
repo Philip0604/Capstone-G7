@@ -15,11 +15,11 @@ class GPSNode(Node):
         baud = 9600
 
         # variables
-        self.m_s = 0
-        self.lat = 0
-        self.lon = 0
-        self.old_pos = (0, 0)
-        self.new_pos = (0, 0)
+        self.m_s = 0.0
+        self.lat = 0.0
+        self.lon = 0.0
+        self.old_pos = (0.0, 0.0)
+        self.new_pos = (0.0, 0.0)
 
         self.gps = serial.Serial(port, baud)
 
