@@ -25,7 +25,7 @@ class LaneDetectionNode(Node):
 
     def image_callback(self, color_msg, depth_msg):
         # Convertir mensajes ROS a imágenes OpenCV
-        color_frame = imgmsg_to_cv2(color_msg, desired_encoding="bgr8")
+        color_frame = imgmsg_to_cv2(color_msg)
         depth_frame = imgmsg_to_cv2_16uc1(depth_msg)
         # Aplicar mapa de color (colormap) a la imagen de profundidad para visualizarla mejor
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_frame, alpha=0.03), cv2.COLORMAP_JET)
