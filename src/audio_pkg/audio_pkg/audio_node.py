@@ -35,6 +35,11 @@ class MainNode(Node):
     def user_detect_callback(self, msg):
         self.user_found = msg.data
 
+    def arduino_info(self):
+        self.get_logger().info(f"Distancia recorrida: {self.total_distance:.2f} m")
+        self.get_logger().info(f"Velocidad aproximada: {self.speed_aprox:.2f} m/s")
+        self.get_logger().info(f"Usuario encontrado: {'Sí' if self.user_found else 'No'}")
+
     def destroy_node(self):
         super().destroy_node()
 
