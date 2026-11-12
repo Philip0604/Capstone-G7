@@ -3,7 +3,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float32
 import message_filters
-from cv_bridge import CvBridge
+# from cv_bridge import CvBridge
 import cv2
 import numpy as np
 from deteccion_pista_pkg import parametros as p

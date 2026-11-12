@@ -3,7 +3,7 @@ from rclpy.node import Node
 import pyrealsense2 as rs
 import numpy as np
 from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
+# from cv_bridge import CvBridge
 
 class CameraNode(Node):
     def __init__(self):
