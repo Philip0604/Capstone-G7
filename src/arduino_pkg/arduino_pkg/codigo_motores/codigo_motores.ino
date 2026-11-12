@@ -1,5 +1,6 @@
 // Código motores
 
+#include <Sabertooth.h>
 #include <Arduino.h>
 #include <math.h>
 
@@ -14,17 +15,16 @@
 #include <std_msgs/msg/float32.h>
 #include <std_msgs/msg/bool.h>
 
-// PINES DE MOTORES cambiar por hardware
-const int IN1_LEFT = 2, IN2_LEFT = 3, PWM_LEFT = 4;
-const int IN1_RIGHT = 5, IN2_RIGHT = 6, PWM_RIGHT = 7;
-
-// Pines de encoders CAMBIAR POR HARDWARE
-const int ENC_LEFT = 8, ENC_RIGHT = 9;
+// DRIVER MOTORES
+Sabertooth ST(128, Serial2);   // se crea "ST" que representa el sabertooth con address 128 y en serial2 (deberia ser serial1, pero parece que no xd)
+// DIP sw: 1-OFF 2-OFF 3-OFF 4-ON 5-ON 6-ON
+// 1,2 OFF: libreria sabertooth, 3 OFF: proteccion bateria, 4,5 ON: comunicacion gpio
+// 6 ON: emergency stop off -> (A1 y A2: si reciben un high) detenerse si un enable se desactiva. 
 
 // PARAMETROS DE CONTROL
-const float RPM_BASE = 300.0;
-const float RPM_MAX = 360.0;
-const float RPM_CORRECCION_MAX = 120.0;
+const int VEL_BASE = 100;    // -127 full reversa, 0 stop, 127 full avance
+const int VEL_MAX = 125;
+const int VEL_CORRECCION_MAX = 10;
 
 // IMPORTANTE: cambiar pulsos por vuelta
 const float PULSOS_VUELTA_LEFT = 20.0;
@@ -42,12 +42,17 @@ const float KD_VEL = 0.08;
 const float KP_LATERAL = 60.0;
 const float KP_ANGULAR = 60.0;
 
-// ENCODERS
-volatile long pulsosLeft = 0;
-volatile long pulsosRight = 0;
+// ENCODERS -> pins y funciones
+const int PIN_ENC_L_A = 2;   // ENC_L_A -> GIGA D2   encoder A de motor izquierdo
+const int PIN_ENC_L_B = 3;   // ENC_L_B -> GIGA D3   encoder B de motor izquierdo
+const int PIN_ENC_R_A = 4;   // ENC_R_A -> GIGA D4   encoder A de motor derecho
+const int PIN_ENC_R_B = 5;   // ENC_R_B -> GIGA D5   encoder B de motor derecho
 
-void contarLeft() { pulsosLeft++; }
-void contarRight() { pulsosRight++; }
+volatile long cuentaL = 0;
+volatile long cuentaR = 0;
+
+void encL() { cuentaL += digitalRead(PIN_ENC_L_B) ? 1 : -1; }  // a cuentaL se le suma el resultado de: if el pin esta high (1), entonces es 1 y si no entonces es -1
+void encR() { cuentaR += digitalRead(PIN_ENC_R_B) ? 1 : -1; }
 
 // PID DE VELOCIDAD
 class PIDVelocidad {
