@@ -5,7 +5,7 @@ from std_msgs.msg import Bool, Float32
 
 class MainNode(Node):
     def __init__(self):
-        super().__init__('user_tracker_node')
+        super().__init__('audio_node')
 
         # constantes:
 
