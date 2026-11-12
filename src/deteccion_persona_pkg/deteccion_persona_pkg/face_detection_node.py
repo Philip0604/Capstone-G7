@@ -92,7 +92,7 @@ class UserTrackerNode(Node):
         msg1 = Int32()
         msg2 = Bool()
         msg1.data = self.width_avg  # valor objetivo = 35, un rango de 33 a 37 es de ~240cm a ~270cm
-        msg2 = self.user_detected # indica si han pasado 3 segundos desde que no se detecta un usuario
+        msg2.data = self.user_detected # indica si han pasado 3 segundos desde que no se detecta un usuario
         self.distance_pub.publish(msg1)  # se publica el ancho al topico /user_distance
         self.detected_pub.publish(msg2)
 
