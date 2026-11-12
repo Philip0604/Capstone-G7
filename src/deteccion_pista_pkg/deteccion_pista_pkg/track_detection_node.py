@@ -25,8 +25,8 @@ class LaneDetectionNode(Node):
 
     def image_callback(self, color_msg, depth_msg):
         # Convertir mensajes ROS a imágenes OpenCV
-        color_frame = self.bridge.imgmsg_to_cv2(color_msg, desired_encoding="bgr8")
-        depth_frame = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="16UC1")
+        color_frame = imgmsg_to_cv2(color_msg, desired_encoding="bgr8")
+        depth_frame = imgmsg_to_cv2_16uc1(depth_msg)
         # Aplicar mapa de color (colormap) a la imagen de profundidad para visualizarla mejor
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_frame, alpha=0.03), cv2.COLORMAP_JET)
 
@@ -38,6 +38,27 @@ class LaneDetectionNode(Node):
         cv2.imshow("Pista", detectado)
         if cv2.waitKey(1) & (0xFF == ord("q") or 0xFF == 27):  # 27 es la tecla ESC
             self.get_logger().info("Cerrando nodo de detección de pista")
+
+# Replace br.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+def imgmsg_to_cv2(msg: Image) -> np.ndarray:
+    img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
+    return img
+
+def imgmsg_to_cv2_16uc1(msg: Image) -> np.ndarray:
+    if msg.encoding != '16UC1':
+        raise ValueError(f"Expected encoding '16UC1', got '{msg.encoding}'")
+    
+    # Handle endianness if the publisher is big-endian, otherwise standard little-endian uint16
+    dtype = np.dtype(np.uint16).newbyteorder('>' if msg.is_bigendian else '<')
+    
+    # Use strides in case the publisher pads rows (msg.step > msg.width * 2)
+    img = np.ndarray(
+        shape=(msg.height, msg.width),
+        dtype=dtype,
+        buffer=msg.data,
+        strides=(msg.step, 2)
+    )
+    return img.copy()  # .copy() ensures a contiguous, writable array for OpenCV 5
 
 def constrain(val, min_val):
     if val < min_val: return min_val

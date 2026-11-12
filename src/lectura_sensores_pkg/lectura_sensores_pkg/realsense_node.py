@@ -40,12 +40,12 @@ class CameraNode(Node):
         # Convertir a NumPy
         color_image = np.asanyarray(color_frame.get_data())
         depth_image = np.asanyarray(depth_frame.get_data())
-        self.get_logger().info(f"Color image: shape={color_image.shape}, dtype={color_image.dtype}")
-        self.get_logger().info(f"Depth image: shape={depth_image.shape}, dtype={depth_image.dtype}")
+        # self.get_logger().info(f"Color image: shape={color_image.shape}, dtype={color_image.dtype}")
+        # self.get_logger().info(f"Depth image: shape={depth_image.shape}, dtype={depth_image.dtype}")
 
         # Convertir a mensajes ROS
-        color_msg = self.bridge.cv2_to_imgmsg(color_image, encoding="bgr8")
-        depth_msg = self.bridge.cv2_to_imgmsg(depth_image, encoding="16UC1")
+        color_msg = cv2_to_imgmsg(color_image, encoding="bgr8")
+        depth_msg = cv2_to_imgmsg_16uc1(depth_image)
 
         # Publicar
         self.color_publisher.publish(color_msg)
@@ -55,6 +55,30 @@ class CameraNode(Node):
         self.pipeline.stop()
         super().destroy_node()
 
+# Replace br.cv2_to_imgmsg(cv_img, encoding='bgr8')
+def cv2_to_imgmsg(cv_img: np.ndarray, encoding: str = 'bgr8') -> Image:
+    msg = Image()
+    msg.height, msg.width = cv_img.shape[:2]
+    msg.encoding = encoding
+    msg.is_bigendian = 0
+    msg.step = cv_img.strides[0]
+    msg.data = cv_img.tobytes()
+    return msg
+
+# Replace br.cv2_to_imgmsg(cv_img, encoding='16UC1')
+def cv2_to_imgmsg_16uc1(cv_img: np.ndarray) -> Image:
+    # Ensure array is contiguous uint16 before serializing
+    if cv_img.dtype != np.uint16:
+        cv_img = cv_img.astype(np.uint16)
+    cv_img = np.ascontiguousarray(cv_img)
+
+    msg = Image()
+    msg.height, msg.width = cv_img.shape[:2]
+    msg.encoding = '16UC1'
+    msg.is_bigendian = 0
+    msg.step = cv_img.strides[0]  # Equals width * 2 bytes for contiguous uint16
+    msg.data = cv_img.tobytes()
+    return msg
 
 def main(args=None):
     rclpy.init(args=args)
