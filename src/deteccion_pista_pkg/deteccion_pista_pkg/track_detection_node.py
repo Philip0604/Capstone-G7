@@ -6,7 +6,7 @@ import message_filters
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
-import parametros as p
+from deteccion_pista_pkg import parametros as p
 
 class LaneDetectionNode(Node):
     def __init__(self):

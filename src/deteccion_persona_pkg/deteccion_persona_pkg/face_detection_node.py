@@ -5,6 +5,10 @@ import cv2
 import numpy as np
 import time
 from collections import deque
+from ament_index_python.packages import get_package_share_directory
+import os
+
+
 
 
 class UserTrackerNode(Node):
@@ -12,7 +16,8 @@ class UserTrackerNode(Node):
         super().__init__('user_tracker_node')
 
         # constantes:
-        model_path = "face_detection_yunet_2026may.onnx"
+        package_path = get_package_share_directory('deteccion_persona_pkg')
+        model_path = os.path.join(package_path, 'face_detection_yunet_2026may.onnx')
         camera_index = 0  # en computador: 0->camara laptop, 1->camara externa
         frame_width = 640  # RECALIBRAR RANGO DISTANCIA SI SE CAMBIA
         frame_height = 352 # 352 para que sea divisible por 32 (no influye en ancho de cara)
