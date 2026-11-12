@@ -68,7 +68,7 @@ class GPSNode(Node):
             msg1 = Float32()
             msg2 = Float32()
             msg1.data = advance
-            msg2 = self.m_s
+            msg2.data = self.m_s
             self.distance_pub.publish(msg1)
             self.speed_pub.publish(msg2)
 
