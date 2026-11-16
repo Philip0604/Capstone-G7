@@ -36,9 +36,10 @@ class MainNode(Node):
         self.user_found = msg.data
 
     def arduino_info(self):
-        self.get_logger().info(f"Distancia recorrida: {self.total_distance:.2f} m")
-        self.get_logger().info(f"Velocidad aproximada: {self.speed_aprox:.2f} m/s")
-        self.get_logger().info(f"Usuario encontrado: {'Sí' if self.user_found else 'No'}")
+        self.get_logger().info(
+            f"Distancia recorrida: {self.total_distance:.2f} m | "
+            f"Velocidad aproximada: {self.speed_aprox:.2f} m/s | "
+            f"Usuario encontrado: {'Sí' if self.user_found else 'No'}")
 
     def destroy_node(self):
         super().destroy_node()
@@ -54,7 +55,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

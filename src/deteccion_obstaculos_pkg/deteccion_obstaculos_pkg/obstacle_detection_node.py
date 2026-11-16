@@ -3,10 +3,10 @@ import rclpy
 from rclpy.node import Node
 
 
-class DeteccionObstaculosNode(Node):
+class ObstacleDetectionNode(Node):
 
     def __init__(self):
-        super().__init__('deteccion_obstaculos_node')
+        super().__init__('obstacle_detection_node')
 
         # Parámetros
         self.frecuencia = 10.0  # Hz
@@ -58,7 +58,7 @@ class DeteccionObstaculosNode(Node):
 def main(args=None):
     rclpy.init(args=args)
 
-    node = DeteccionObstaculosNode()
+    node = ObstacleDetectionNode()
 
     try:
         rclpy.spin(node)
