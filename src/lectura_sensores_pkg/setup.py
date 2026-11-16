@@ -29,6 +29,7 @@ setup(
     entry_points={
         'console_scripts': [
             'realsense_node = lectura_sensores_pkg.realsense_node:main',
+            'video_node = lectura_sensores_pkg.video_node:main',
         ],
     },
 )

@@ -29,7 +29,6 @@ setup(
     entry_points={
         'console_scripts': [
             'track_detection_node = deteccion_pista_pkg.track_detection_node:main',
-            'probar_video = deteccion_pista_pkg.probar_video:main',
         ],
     },
 )
