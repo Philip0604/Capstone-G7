@@ -14,7 +14,7 @@ const int VEL_MEDIO  = 40;
 
 int velActual = VEL_STOP;
 int velObjetivo = VEL_STOP;
-const int VEL_RAMPA = 1;   // aumenta 2 cada MS_RAMPA milisegundos
+const int VEL_RAMPA = 1;   // aumenta 1 cada MS_RAMPA milisegundos
 const unsigned long MS_RAMPA = 50;
 
 volatile long cuentaL = 0;

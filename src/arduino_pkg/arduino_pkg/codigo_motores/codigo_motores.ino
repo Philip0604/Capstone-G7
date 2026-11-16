@@ -12,9 +12,10 @@
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
 
-#include <std_msgs/msg/float32.h>
-#include <std_msgs/msg/bool.h>
-#include <std_msgs/msg/Int32.h>
+#include <geometry_msgs/msg/vector3.h>
+// #include <std_msgs/msg/float32.h>
+// #include <std_msgs/msg/bool.h>
+// #include <std_msgs/msg/Int32.h>
 
 
 // DRIVER MOTORES
@@ -24,9 +25,9 @@ Sabertooth ST(128, Serial2);   // se crea "ST" que representa el sabertooth con 
 // 6 ON: emergency stop off -> detenerse si un enable se desactiva (A1 y A2 deben estar high para que M1 y M2 funcionen)
 
 // PARAMETROS DE CONTROL
-const int VEL_BASE = 40;    // -127 full reversa, 0 stop, 127 full avance
-const int VEL_MAX = 120;
-const int VEL_CORRECCION_MAX = 10;
+const int RPM_BASE = 40;    // -127 full reversa, 0 stop, 127 full avance
+const int RPM_MAX = 120;
+const int RPM_CORRECCION_MAX = 1;   // se aumenta o disminuye por 1 a la velocidad actual para corregir la velocidad
 
 // IMPORTANTE: cambiar pulsos por vuelta
 const float PULSOS_VUELTA_LEFT = 20.0;
@@ -81,7 +82,7 @@ class PIDVelocidad {
             salida = KP_VEL * error + KI_VEL * integral + KD_VEL * derivada;
 
             errorAnterior = error;
-            return constrain((int)round(salida), 0, 255);
+            return constrain((int)round(salida), 0, PWM_MAX);
         }
 
         void reiniciar() {
@@ -106,13 +107,13 @@ class PIDDistancia {
             float salida = KP_DIST * error + KI_DIST * integralNueva + KD_DIST * derivada;
 
             // Anti-windup básico.
-            if (salida >= -PWM_MAX && salida <= PWM_MAX) {
+            if (salida >= 0 && salida <= PWM_MAX) {
                 integral = integralNueva;
             }
 
             salida = KP_DIST * error + KI_DIST * integral + KD_DIST * derivada;
             errorAnterior = error;
-            return constrain(salida, -PWM_MAX, PWM_MAX);
+            return constrain(salida, 0, PWM_MAX);
         }
         void reiniciar() {
             integral = 0;
@@ -196,6 +197,7 @@ void setup() {
     Serial3.begin(115200); // serial3 para comunicacion esp            (pin D17 esp con arduino o con raspi)
     //ST.setTimeout(1000); // para que si no llegan comandos nuevos dentro de 1 segundo se detienen los motores (settimeout(0) para desactivar)
                        // un delay en el codigo puede activar el timeout!!
+    
     ST.motor(1,0);  // se detienen los motores
     ST.motor(2,0);
 
@@ -264,25 +266,6 @@ void loop() {
     float dt = (ahora - ultimoControl) / 1000.0;
     ultimoControl = ahora;
 
-    float rpmLeft = deltaLeft * 60.0 / (PULSOS_VUELTA_LEFT * dt);
-    float rpmRight = deltaRight * 60.0 / (PULSOS_VUELTA_RIGHT * dt);
-
-    // La Raspberry determina el sentido de la correccion.
-    float correccion = KP_LATERAL * errorLateral + KP_ANGULAR * errorAngular;
-
-    correccion = constrain(correccion, -RPM_CORRECCION_MAX, RPM_CORRECCION_MAX);
-
-    float objetivoLeft = constrain(RPM_BASE + correccion, 0.0, RPM_MAX);
-    float objetivoRight = constrain(RPM_BASE - correccion, 0.0, RPM_MAX);
-
-    // PID independiente para cada rueda.
-    int velLeft = pidLeft.calcular(objetivoLeft, rpmLeft, dt);
-    int velRight = pidRight.calcular(objetivoRight, rpmRight, dt);
-
-    // para avanzar, ambos valores son positivos
-    ST.motor(1, velLeft);
-    ST.motor(2, velRight);
-
     // se leen encoders cada 0.1 segundos
     static uint32_t ultimo_read_enc = 0;
     if (millis() - ultimo_read_enc >= 100) {
@@ -295,6 +278,25 @@ void loop() {
     long deltaR = cuentaR - anteriorR;
     anteriorL = cuentaL;
     anteriorR = cuentaR;
+
+    float rpmLeft = deltaL * 60.0 / (PULSOS_VUELTA_LEFT * dt);
+    float rpmRight = deltaR * 60.0 / (PULSOS_VUELTA_RIGHT * dt);
+
+    // La Raspberry determina el sentido de la correccion con los errores.
+    float correccion = KP_LATERAL * errorLateral + KP_ANGULAR * errorAngular;
+
+    correccion = constrain(correccion, -RPM_CORRECCION_MAX, RPM_CORRECCION_MAX);
+
+    float objetivoLeft = constrain(RPM_BASE + correccion, 0.0, RPM_MAX);
+    float objetivoRight = constrain(RPM_BASE + correccion, 0.0, RPM_MAX);
+
+    // PID independiente para cada rueda.
+    int velLeft = pidLeft.calcular(objetivoLeft, rpmLeft, dt);
+    int velRight = pidRight.calcular(objetivoRight, rpmRight, dt);
+
+    // para avanzar, ambos valores son positivos
+    ST.motor(1, velLeft);
+    ST.motor(2, velRight);
 }
 
 
