@@ -25,7 +25,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'deteccion_obstaculos_node = deteccion_obstaculos_pkg.deteccion_obstaculos_node:main',
+            'obstacle_detection_node = deteccion_obstaculos_pkg.obstacle_detection_node:main',
         ],
     },
 )
