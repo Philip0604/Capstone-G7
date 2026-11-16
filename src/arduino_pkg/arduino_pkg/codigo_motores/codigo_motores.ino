@@ -11,10 +11,11 @@
 #include <rcl/error_handling.h>
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
+#include <rmw_microros/rmw_microros.h>
 
 #include <geometry_msgs/msg/vector3.h>
 // #include <std_msgs/msg/float32.h>
-// #include <std_msgs/msg/bool.h>
+#include <std_msgs/msg/bool.h>
 // #include <std_msgs/msg/Int32.h>
 
 
@@ -27,7 +28,7 @@ Sabertooth ST(128, Serial2);   // se crea "ST" que representa el sabertooth con 
 // PARAMETROS DE CONTROL
 const int RPM_BASE = 40;    // -127 full reversa, 0 stop, 127 full avance
 const int RPM_MAX = 120;
-const int RPM_CORRECCION_MAX = 1;   // se aumenta o disminuye por 1 a la velocidad actual para corregir la velocidad
+const int RPM_CORRECCION_MAX = 120.0;
 
 // IMPORTANTE: cambiar pulsos por vuelta
 const float PULSOS_VUELTA_LEFT = 20.0;
@@ -36,14 +37,19 @@ const float PULSOS_VUELTA_RIGHT = 20.0;
 const unsigned long DT_MS = 50;
 const unsigned long TIMEOUT_RASPBERRY_MS = 500;
 
-// PID de velocidad: valores iniciales, requieren calibracion.
-const float KP_VEL = 1.5;
-const float KI_VEL = 0.005;
-const float KD_VEL = 0.08;
+// PID de velocidad: valores iniciales, requieren calibracion (f para Float32; calculos mas rapidos)
+const float KP_VEL = 1.5f;
+const float KI_VEL = 0.005f;
+const float KD_VEL = 0.08f;
 
-// Ganancias de trayectoria: valores iniciales, requieren calibracion.
-const float KP_LATERAL = 60.0;
-const float KP_ANGULAR = 60.0;
+// PID de distancia: valores iniciales, requieren calibracion
+const float KP_DIST = 1.5f;
+const float KI_DIST = 0.005f;
+const float KD_DIST = 0.08f;
+
+// Ganancias de trayectoria: valores iniciales, requieren calibracion
+const float KP_LATERAL = 60.0f;
+const float KP_ANGULAR = 60.0f;
 
 // ENCODERS -> pins y funciones
 const int PIN_ENC_L_A = 2;   // ENC_L_A -> GIGA D2   encoder A de motor izquierdo
@@ -72,17 +78,17 @@ class PIDVelocidad {
             float derivada = (error - errorAnterior) / dt;
             float integralNueva = integral + error * dt;
 
-            float salida = KP_VEL * error + KI_VEL * integralNueva + KD_VEL * derivada;
+            float salida = (KP_VEL * error) + (KI_VEL * integralNueva) + (KD_VEL * derivada);
 
-            // Limitar salida PWM y evitar acumulacion excesiva.
-            if (salida >= 0 && salida <= 255) {
+            // Limitar salida PWM y evitar acumulacion excesiva (anti windup basico)
+            if (salida >= 0 && salida <= RPM_MAX) {
                 integral = integralNueva;
             }
 
-            salida = KP_VEL * error + KI_VEL * integral + KD_VEL * derivada;
+            salida = (KP_VEL * error) + (KI_VEL * integral) + (KD_VEL * derivada);
 
             errorAnterior = error;
-            return constrain((int)round(salida), 0, PWM_MAX);
+            return constrain((int)round(salida), 0, RPM_MAX);
         }
 
         void reiniciar() {
@@ -98,22 +104,21 @@ class PIDDistancia {
         float errorAnterior = 0;
 
         float calcular(float objetivo, float actual, float dt) {
-
             float error = objetivo - actual;
             float derivada = (error - errorAnterior) / dt;
 
             float integralNueva = integral + error * dt;
 
-            float salida = KP_DIST * error + KI_DIST * integralNueva + KD_DIST * derivada;
+            float salida = (KP_DIST * error) + (KI_DIST * integralNueva) + (KD_DIST * derivada);
 
-            // Anti-windup básico.
-            if (salida >= 0 && salida <= PWM_MAX) {
+            // Limitar salida PWM y evitar acumulacion excesiva (anti windup basico)
+            if (salida >= 0 && salida <= RPM_MAX) {
                 integral = integralNueva;
             }
 
-            salida = KP_DIST * error + KI_DIST * integral + KD_DIST * derivada;
+            salida = (KP_DIST * error) + (KI_DIST * integral) + (KD_DIST * derivada);
             errorAnterior = error;
-            return constrain(salida, 0, PWM_MAX);
+            return constrain(salida, 0, RPM_MAX);
         }
         void reiniciar() {
             integral = 0;
@@ -125,9 +130,9 @@ PIDDistancia pidDistancia;
 PIDVelocidad pidLeft, pidRight;
 
 // ESTADO
-float errorLateral = 0;
-float errorAngular = 0;
-float anchoCara = 0;
+volatile float errorLateral = 0.0f;   // Vector3.x    // f para indicar que es Float32 (sin f es Float64)
+volatile float errorAngular = 0.0f;   // Vector3.y
+volatile int distancia = 0;           // Vector3.z    // en realidad es el ancho de la cara
 
 unsigned long ultimaOrden = 0;
 unsigned long ultimoControl = 0;
@@ -138,51 +143,33 @@ bool ordenRecibida = false;
 
 
 // VARIABLES MICRO-ROS
-rcl_node_t nodo_arduino;
-rclc_support_t ros_support;
-rcl_allocator_t ros_allocator;
-rclc_executor_t ros_executor;
+rcl_node_t node;
+rclc_support_t support;
+rcl_allocator_t allocator;
+rclc_executor_t executor;
 
-rcl_subscription_t sub_target_speed;
-rcl_publisher_t pub_remote_btn;
+rcl_subscription_t sub_valores_pid;
+geometry_msgs__msg__Vector3 vec_para_pid;
 
-std_msgs__msg__Float32 msg_recv_speed;
+rcl_publisher_t pub_btn_control;    // editar para publicar estado de botones A.B,C y D (tal vez hacer un vector de bools si se puede)
 std_msgs__msg__Bool msg_pub_btn;
 
 float bufferControl[2];
 float bufferEstado[4];
 
-// ============================================================
-// CALLBACK DEL TOPIC DE CONTROL
-//
-// /control_error
-//
-// data[0] = error lateral
-// data[1] = error angular
-// ============================================================
+void callback_valores_pid(const void * msgin) {
+    const geometry_msgs__msg__Vector3 * msg =
+        (const geometry_msgs__msg__Vector3 *)msgin;
 
-void callbackControl(const void *msgin) {
-    const std_msgs__msg__Float32 *msg =
-        (const std_msgs__msg__Float32 *)msgin;
+    errorLateral = constrain((float)msg->x, -1.0f, 1.0f);
+    errorAngular = constrain((float)msg->y, -1.0f, 1.0f);
+    distancia = (int)msg->z;
 
-    if (msg->data.size < 2) return;
-
-    float lat = msg->data.data[0];
-    float ang = msg->data.data[1];
-
-    if (isfinite(lat) && isfinite(ang) &&
-        lat >= -1.0 && lat <= 1.0 &&
-        ang >= -1.0 && ang <= 1.0) {
-
-        errorLateral = lat;
-        errorAngular = ang;
-
-        ultimaOrden = millis();
-        ordenRecibida = true;
-    }
+    ultimaOrden = millis();
+    ordenRecibida = true;
 }
 
-
+// rmw_uros_ping_agent --------------------------------------------------------------------------------------
 // SETUP
 void setup() {
     pinMode(PIN_ENC_L_A, INPUT);
@@ -202,7 +189,7 @@ void setup() {
     ST.motor(2,0);
 
     // MICRO-ROS
-    set_microros_serial_transports(Serial);  // solo usar serial para microros y no serial.print
+    set_microros_transports();  // solo usar serial para microros y no serial.print
     delay(2000);
 
     allocator = rcl_get_default_allocator();
@@ -213,32 +200,28 @@ void setup() {
 
     // Subscriber
     rclc_subscription_init_default(
-        &subscriber,
+        &sub_valores_pid,
         &node,
-        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
-        "/control_error"
+        ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+        "/pid_data"
     );
 
     // Publisher
-    rclc_publisher_init_default(
-        &publisher,
-        &node,
-        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
-        "/motor_status"
-    );
+    // rclc_publisher_init_default(
+    //     &publisher,
+    //     &node,
+    //     ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
+    //     "/motor_status"
+    // );
 
     // CONFIGURACIÓN DE MENSAJES
-    mensajeControl.data.data = bufferControl;
-    mensajeControl.data.capacity = 2;
-    mensajeControl.data.size = 2;
-
-    mensajeEstado.data.data = bufferEstado;
-    mensajeEstado.data.capacity = 4;
-    mensajeEstado.data.size = 4;
+    // mensajeEstado.data.data = bufferEstado;
+    // mensajeEstado.data.capacity = 4;
+    // mensajeEstado.data.size = 4;
 
     // EXECUTOR
     rclc_executor_init(&executor, &support.context, 1, &allocator);
-    rclc_executor_add_subscription(&executor, &subscriber, &mensajeControl, &callbackControl, ON_NEW_DATA);
+    rclc_executor_add_subscription(&executor, &sub_valores_pid, &vec_para_pid, &callback_valores_pid, ON_NEW_DATA);
 
     ultimoControl = millis();
 }
@@ -255,21 +238,22 @@ void loop() {
 
     // Si se pierde la comunicacion, detener el robot.
     if (!ordenRecibida || ahora - ultimaOrden > TIMEOUT_RASPBERRY_MS) {
-        detenerMotores();
+        ST.motor(1, 0);
+        ST.motor(2, 0);
         pidLeft.reiniciar();
         pidRight.reiniciar();
         return;
     }
 
-    if (ahora - ultimoControl < DT_MS) return;
+    if (ahora - ultimoControl < DT_MS) return;  // se sale del loop si han pasado menos de DT milisegundos ya que sigue con otra tarea
 
-    float dt = (ahora - ultimoControl) / 1000.0;
+    float dt = (ahora - ultimoControl) / 1000.0f;  // se updatea dt por si acaso hizo return antes
     ultimoControl = ahora;
 
     // se leen encoders cada 0.1 segundos
     static uint32_t ultimo_read_enc = 0;
-    if (millis() - ultimo_read_enc >= 100) {
-        ultimo_read_enc = millis();
+    if (ahora - ultimo_read_enc >= 100) {
+        ultimo_read_enc = ahora;
         noInterrupts();
         long l = cuentaL, r = cuentaR;
         interrupts();
@@ -285,9 +269,9 @@ void loop() {
     // La Raspberry determina el sentido de la correccion con los errores.
     float correccion = KP_LATERAL * errorLateral + KP_ANGULAR * errorAngular;
 
-    correccion = constrain(correccion, -RPM_CORRECCION_MAX, RPM_CORRECCION_MAX);
+    // correccion = constrain(correccion, -RPM_CORRECCION_MAX, RPM_CORRECCION_MAX); <- creo que no sirve ya que los K son 60 y los errores son de -1 a 1 entonces el max y min ya son 120 o no?
 
-    float objetivoLeft = constrain(RPM_BASE + correccion, 0.0, RPM_MAX);
+    float objetivoLeft = constrain(RPM_BASE - correccion, 0.0, RPM_MAX);
     float objetivoRight = constrain(RPM_BASE + correccion, 0.0, RPM_MAX);
 
     // PID independiente para cada rueda.

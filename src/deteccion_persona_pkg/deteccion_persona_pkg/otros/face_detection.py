@@ -1,11 +1,13 @@
 import cv2
 import numpy as np
 import time
+import os
 
 # constants 
 fps_detection = 10
 frame_detection_time = 1 / fps_detection
-model_path = "face_detection_yunet_2026may.onnx"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(script_dir, "face_detection_yunet_2026may.onnx")
 camera_index = 0  # en computador: 0->camara laptop, 1->camara externa
 frame_width = 640  # RECALIBRAR RANGO DISTANCIA SI SE CAMBIA
 frame_height = 360 # RECALIBRAR RANGO DISTANCIA SI SE CAMBIA
@@ -51,14 +53,8 @@ while cap.isOpened():
             box = face[0:4].astype(np.int32)
 
             faces_widths.append(box[2])
-            #print(box[2])
 
             cv2.rectangle(frame, (box[0], box[1]), (box[0] + box[2], box[1] + box[3]), (255, 0, 0), 2)
-
-            # codigo para puntos de ojos y bocas:
-            #landmarks = face[4:14].reshape((5, 2)).astype(np.int32)
-            #for lm in landmarks:
-                #cv2.circle(frame, tuple(lm), 2, (0, 255, 255), -1)
 
     nearest_face_width = max(faces_widths, default=None)  # detecta a persona mas cercana a camara
     faces_widths = list()
@@ -80,6 +76,8 @@ while cap.isOpened():
         elapsed = time.monotonic() - no_face_timer
         if elapsed > 3:
             print("no face detected")
+
+    print(width_avg)
 
     if 33 <= width_avg <= 37:   # ~240cm - ~270cm obtenidos mediante pruebas con la cámara
         # se envia señal cuando la persona esta dentro de distancia objetivo
