@@ -42,11 +42,11 @@ class PIDMessageNode(Node):
 
     def public_values(self):
         # solo se publica un vector cuando llegaron los 3 valores
-        if self.x is not None and self.y is not None and self.z is not None:
+        if self.lat_error is not None and self.ang_error is not None and self.distance is not None:
             msg_vector = Vector3()
-            msg_vector.x = float(self.x)
-            msg_vector.y = float(self.y)
-            msg_vector.z = float(self.z)
+            msg_vector.x = float(self.lat_error)
+            msg_vector.y = float(self.ang_error)
+            msg_vector.z = float(self.distance)
             self.pid_pub.publish(msg_vector)
 
     def destroy_node(self):
