@@ -47,12 +47,12 @@ def generate_launch_description():
             executable="face_detection_ROS",
             name="face_detection_node",
             output="screen"
-        # ),
+        ),
 
-        # Node(
-        #     package="modulo_gps",
-        #     executable="gps_ROS",
-        #     name="gps_node",
-        #     output="screen"
+        Node(
+            package="modulo_gps",
+            executable="gps_ROS",
+            name="gps_node",
+            output="screen"
         )
     ])
