@@ -34,7 +34,17 @@ const float PULSOS_VUELTA_LEFT = 480.0f;    // cantidad de pulsos medidos por en
 const float PULSOS_VUELTA_RIGHT = 480.0f;
 
 const unsigned long DT_MS = 50;
-const unsigned long TIMEOUT_RASPBERRY_MS = 500;
+const unsigned long TIMEOUT_RASPBERRY_MS = 500;   // sin /pid_data por este tiempo -> detenerse
+const unsigned long TIMEOUT_CARA_MS = 1000;       // sin /user_detected por este tiempo -> se considera sin usuario
+const unsigned long REPETIR_STOP_MS = 250;        // mientras esta detenido, se repite la orden de stop cada este tiempo
+
+// Reconexion con el agente micro-ROS
+const unsigned long PING_ESPERANDO_MS = 500;      // cada cuanto se busca al agente si no hay conexion
+const unsigned long PING_CONECTADO_MS = 500;      // cada cuanto se revisa que el agente siga vivo
+
+// RPM que alcanza la rueda con el comando maximo del Sabertooth (127).
+// Pololu 4752 (30:1) da ~330 rpm a 12 V sin carga: MEDIRLO en el robot (ver abajo).
+const float RPM_CON_127 = 330.0f;
 
 // PID de velocidad: valores iniciales, requieren calibracion (f para Float32; calculos mas rapidos)
 const float KP_VEL = 1.5f;
@@ -72,13 +82,16 @@ class PIDVelocidad {
     public:
         float integral = 0;
         float errorAnterior = 0;
+        bool primero = true;   // en la primera llamada no hay derivada (evita un "salto")
 
         int calcular(float objetivo, float actual, float dt) {
             float error = objetivo - actual;
 
-            float derivada = (error - errorAnterior) / dt;
+            float derivada = primero ? 0.0f : (error - errorAnterior) / dt;
+            primero = false;
             float integralNueva = integral + error * dt;
 
+            // El objetivo es la velocidad deseada, actual es la velocidad medida, ambas en RPM. Se calcula la salida del PID.
             float salida = (KP_VEL * error) + (KI_VEL * integralNueva) + (KD_VEL * derivada);
 
             // Limitar salida PWM y evitar acumulacion excesiva (anti windup basico)
@@ -95,6 +108,7 @@ class PIDVelocidad {
         void reiniciar() {
             integral = 0;
             errorAnterior = 0;
+            primero = true;
         }
 };
 
@@ -103,10 +117,11 @@ class PIDDistancia {
     public:
         float integral = 0;
         float errorAnterior = 0;
+        bool primero = true;
 
         float calcular(float error, float dt) {
-            float derivada = (error - errorAnterior) / dt;
-
+            float derivada = primero ? 0.0f : (error - errorAnterior) / dt;
+            primero = false;
             float integralNueva = integral + error * dt;
 
             float salida = (KP_DIST * error) + (KI_DIST * integralNueva) + (KD_DIST * derivada);
@@ -118,11 +133,12 @@ class PIDDistancia {
 
             salida = (KP_DIST * error) + (KI_DIST * integral) + (KD_DIST * derivada);
             errorAnterior = error;
-            return constrain(salida, 0, RPM_MAX);
+            return constrain(salida, 0.0f, (float)RPM_MAX);
         }
         void reiniciar() {
             integral = 0;
             errorAnterior = 0;
+            primero = true;
         }
 };
 PIDDistancia pidDistancia;
