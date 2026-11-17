@@ -1,3 +1,6 @@
+#include <micro_ros_arduino.h>
+#include <std_msgs/msg/string.h>
+
 // Código motores con micro-ROS, reconexión automática con el agente y control de velocidad y distancia con PID.
 #include <Sabertooth.h>
 #include <Arduino.h>
@@ -34,6 +37,9 @@ const unsigned long DT_MS = 50;
 const unsigned long TIMEOUT_RASPBERRY_MS = 500;   // sin /pid_data por este tiempo -> detenerse
 const unsigned long TIMEOUT_CARA_MS = 1000;       // sin /user_detected por este tiempo -> se considera sin usuario
 const unsigned long REPETIR_STOP_MS = 250;        // mientras esta detenido, se repite la orden de stop cada este tiempo
+
+// Logs: cada cuanto se publica /arduino/estado (leer en la Raspy con: ros2 topic echo /arduino/estado)
+const unsigned long PERIODO_LOG_MS = 500;
 
 // Reconexion con el agente micro-ROS
 const unsigned long PING_ESPERANDO_MS = 500;      // cada cuanto se busca al agente si no hay conexion
@@ -160,6 +166,16 @@ geometry_msgs__msg__Vector3 vec_para_pid;
 rcl_subscription_t sub_cara_detectada;
 std_msgs__msg__Bool msg_cara_detectada;
 
+// LOGS -> /arduino/estado (std_msgs/String)
+rcl_publisher_t pub_estado;
+std_msgs__msg__String msg_estado;
+char buffer_estado[300];
+unsigned long ultimoLog = 0;
+const char * motivo = "iniciando";   // por que el robot esta (o no) moviendose
+// ultimos valores del control, solo para el log
+float logBase = 0, logObjL = 0, logObjR = 0, logRpmL = 0, logRpmR = 0;
+int logVelL = 0, logVelR = 0;
+
 // Estados de la conexion con el agente (Raspberry)
 enum EstadoConexion { ESPERANDO_AGENTE, AGENTE_DISPONIBLE, CONECTADO, DESCONECTADO };
 EstadoConexion estadoConexion = ESPERANDO_AGENTE;
@@ -202,6 +218,7 @@ bool crearEntidades() {
     sub_valores_pid = rcl_get_zero_initialized_subscription();
     sub_cara_detectada = rcl_get_zero_initialized_subscription();
     executor = rclc_executor_get_zero_initialized_executor();
+    pub_estado = rcl_get_zero_initialized_publisher();
 
     // Crear nodo y suscripciones y verificar que no haya errores. Si hay error, se sale y se destruyen las entidades (si es que se crearon).
     if (rclc_support_init(&support, 0, NULL, &allocator) != RCL_RET_OK) return false;
@@ -214,6 +231,15 @@ bool crearEntidades() {
             &sub_cara_detectada, &node,
             ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
             "/user_detected") != RCL_RET_OK) return false;
+
+    // Publisher de logs (texto)
+    if (rclc_publisher_init_default(
+            &pub_estado, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String),
+            "/arduino/estado") != RCL_RET_OK) return false;
+    msg_estado.data.data = buffer_estado;
+    msg_estado.data.capacity = sizeof(buffer_estado);
+    msg_estado.data.size = 0;
 
     if (rclc_executor_init(&executor, &support.context, 2, &allocator) != RCL_RET_OK) return false; // EXECUTOR (2 = cantidad de suscripciones)
     if (rclc_executor_add_subscription(&executor, &sub_valores_pid, &vec_para_pid,
@@ -230,6 +256,7 @@ void destruirEntidades() {
     (void) rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
     (void) rcl_subscription_fini(&sub_valores_pid, &node);
     (void) rcl_subscription_fini(&sub_cara_detectada, &node);
+    (void) rcl_publisher_fini(&pub_estado, &node);
     (void) rclc_executor_fini(&executor);
     (void) rcl_node_fini(&node);
     (void) rclc_support_fini(&support);
@@ -298,29 +325,6 @@ void detenerMotores(unsigned long ahora) {  // Detiene los motores. Se repite ca
     motoresDetenidos = true;
 }
 
-// SETUP
-void setup() {
-    pinMode(PIN_ENC_L_A, INPUT);
-    pinMode(PIN_ENC_L_B, INPUT);
-    pinMode(PIN_ENC_R_A, INPUT);
-    pinMode(PIN_ENC_R_B, INPUT);
-    attachInterrupt(digitalPinToInterrupt(PIN_ENC_L_A), encL, RISING);
-    attachInterrupt(digitalPinToInterrupt(PIN_ENC_R_A), encR, RISING);
-
-    // Serial reservado para ros (no se le hace begin y no se puede usar para imprimir)
-    Serial2.begin(9600);    // serial2 para motores. 9600 es el default (pin D18 arduino conectado a S1 sabertooth)
-    Serial3.begin(115200);  // serial3 para comunicacion esp            (pin D17 esp con arduino o con raspi)
-    ST.setTimeout(1000);    // para que si no llegan comandos nuevos dentro de 1 segundos se detienen los motores (settimeout(0) para desactivar)
-                            // un delay en el codigo puede activar el timeout!!
-    ST.motor(1, 0);
-    ST.motor(2, 0);
-
-    // MICRO-ROS: solo se configura el transporte. La conexion con el agente la
-    // maneja gestionarConexion() en el loop (y se reconecta sola si se pierde).
-    set_microros_transports();  // solo usar serial para microros y no serial.print
-    delay(100);
-}
-
 // Se crea una función encargada de realizar el control de los motores, que se llama en cada vuelta del loop.
 // Esto permite que si se pierde la comunicación con la Raspberry, el robot se detenga automáticamente.
 void controlar(unsigned long ahora) {
@@ -370,27 +374,93 @@ void controlar(unsigned long ahora) {
     int velLeft = pidLeft.calcular(objetivoLeft, rpmLeft, dt);
     int velRight = pidRight.calcular(objetivoRight, rpmRight, dt);
 
+    // valores para el log
+    logBase = rpmBaseDinamica; logObjL = objetivoLeft; logObjR = objetivoRight;
+    logRpmL = rpmLeft; logRpmR = rpmRight; logVelL = velLeft; logVelR = velRight;
+    if (rpmBaseDinamica <= 0.0f) {
+        motivo = "QUIETO: velocidad base 0 (usuario lejos o a la distancia objetivo: cara <= 35 px)";
+    } else {
+        motivo = "MOVIENDO";
+    }
+
     // para avanzar, ambos valores son positivos
     ST.motor(1, velLeft);
     ST.motor(2, velRight);
+}
+
+// LOGS: publica un texto en /arduino/estado con el motivo y los valores del control.
+// Los decimales se mandan x100 como enteros (ej: lat=30 -> 0.30), porque printf
+// con %f no siempre funciona en el Arduino.
+void publicarEstado(unsigned long ahora) {
+    if (estadoConexion != CONECTADO || ahora - ultimoLog < PERIODO_LOG_MS) return;
+    ultimoLog = ahora;
+
+    long hacePid = ordenRecibida ? (long)(ahora - ultimaOrden) : -1;
+    long haceCara = (ultimaCara > 0) ? (long)(ahora - ultimaCara) : -1;
+    bool detenido = motoresDetenidos;
+
+    int n = snprintf(buffer_estado, sizeof(buffer_estado),
+        "%s | pid_data hace %ldms lat=%d ang=%d cara=%dpx | usuario=%d (hace %ldms) | "
+        "base=%d objL=%d objR=%d rpmL=%d rpmR=%d cmdL=%d cmdR=%d",
+        motivo, hacePid,
+        (int)(errorLateral * 100), (int)(errorAngular * 100), distancia,
+        (int)usuarioDetectado, haceCara,
+        detenido ? 0 : (int)logBase, detenido ? 0 : (int)logObjL, detenido ? 0 : (int)logObjR,
+        detenido ? 0 : (int)logRpmL, detenido ? 0 : (int)logRpmR,
+        detenido ? 0 : logVelL, detenido ? 0 : logVelR);
+    if (n < 0) return;
+    if (n >= (int)sizeof(buffer_estado)) n = sizeof(buffer_estado) - 1;
+    msg_estado.data.size = n;
+    (void) rcl_publish(&pub_estado, &msg_estado, NULL);
+}
+
+// SETUP
+void setup() {
+    pinMode(PIN_ENC_L_A, INPUT);
+    pinMode(PIN_ENC_L_B, INPUT);
+    pinMode(PIN_ENC_R_A, INPUT);
+    pinMode(PIN_ENC_R_B, INPUT);
+    attachInterrupt(digitalPinToInterrupt(PIN_ENC_L_A), encL, RISING);
+    attachInterrupt(digitalPinToInterrupt(PIN_ENC_R_A), encR, RISING);
+
+    // Serial reservado para ros (no se le hace begin y no se puede usar para imprimir)
+    Serial2.begin(9600);    // serial2 para motores. 9600 es el default (pin D18 arduino conectado a S1 sabertooth)
+    Serial3.begin(115200);  // serial3 para comunicacion esp            (pin D17 esp con arduino o con raspi)
+    ST.setTimeout(1000);    // para que si no llegan comandos nuevos dentro de 1 segundos se detienen los motores (settimeout(0) para desactivar)
+                            // un delay en el codigo puede activar el timeout!!
+    ST.motor(1, 0);
+    ST.motor(2, 0);
+
+    // MICRO-ROS: solo se configura el transporte. La conexion con el agente la
+    // maneja gestionarConexion() en el loop (y se reconecta sola si se pierde).
+    set_microros_transports();  // solo usar serial para microros y no serial.print
+    delay(100);
 }
 
 // LOOP
 void loop() {
     gestionarConexion();
     unsigned long ahora = millis();
+    publicarEstado(ahora);   // log cada PERIODO_LOG_MS (solo si hay conexion)
 
     if (estadoConexion != CONECTADO) { // Sin conexion con la Raspberry -> detenido
+        motivo = "DETENIDO: sin conexion con el agente";
         detenerMotores(ahora);
         return;
     }
 
     if (!ordenRecibida || ahora - ultimaOrden > TIMEOUT_RASPBERRY_MS) { // Sin ordenes recientes (pista perdida o nodo caido) -> detenido
+        motivo = ordenRecibida
+            ? "DETENIDO: /pid_data dejo de llegar (pista perdida o pid_message_node caido)"
+            : "DETENIDO: nunca llego /pid_data (pista no detectada o pid_message_node no corre)";
         detenerMotores(ahora);
         return;
     }
 
     if (!usuarioDetectado || (ahora - ultimaCara > TIMEOUT_CARA_MS)) { // Sin usuario (o sin noticias del nodo de la cara hace rato) -> detenido
+        motivo = (ahora - ultimaCara > TIMEOUT_CARA_MS)
+            ? "DETENIDO: no llega /user_detected (face_detection_node no corre?)"
+            : "DETENIDO: /user_detected = false (no se ve al usuario)";
         detenerMotores(ahora);
         return;
     }
