@@ -12,11 +12,11 @@ def generate_launch_description():
             name='track_detection_node',
             output='screen'
         ),
-        Node(
-            package='deteccion_pista_pkg',
-            executable='probar_video',
-            name='probar_video',
-            output='screen'
-        ),
+        # Node(
+        #     package='deteccion_pista_pkg',
+        #     executable='probar_video',
+        #     name='probar_video',
+        #     output='screen'
+        # ),
 
     ])

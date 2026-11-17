@@ -37,7 +37,7 @@ def generate_launch_description():
         # incluir_launch('navegacion_pkg', 'navegacion.launch.py'),
 
         # Control y comunicación
-        # incluir_launch('control_pkg', 'control.launch.py'),
+        incluir_launch('control_pkg', 'control.launch.py'),
         # incluir_launch('arduino_pkg', 'arduino.launch.py'),
 
         # Interacción auditiva

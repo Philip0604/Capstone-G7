@@ -22,7 +22,7 @@
   <!-- <exec_depend>deteccion_obstaculos_pkg</exec_depend> -->
   <exec_depend>gps_pkg</exec_depend>
   <!-- <exec_depend>navegacion_pkg</exec_depend> -->
-  <!-- <exec_depend>control_pkg</exec_depend> -->
+  <exec_depend>control_pkg</exec_depend>
   <exec_depend>arduino_pkg</exec_depend>
   <exec_depend>audio_pkg</exec_depend>
 

@@ -13,12 +13,12 @@ def generate_launch_description():
             output='screen'
         ),
 
-        Node(
-            package='lectura_sensores_pkg',
-            executable='video_node',
-            name='video_node',
-            output='screen'
-        ),
+        # Node(
+        #     package='lectura_sensores_pkg',
+        #     executable='video_node',
+        #     name='video_node',
+        #     output='screen'
+        # ),
 
         # Node(
         #     package='lectura_sensores_pkg',
