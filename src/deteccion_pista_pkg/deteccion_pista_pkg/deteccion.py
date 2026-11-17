@@ -59,9 +59,7 @@ class DetectorPista:
         self.x_izq_prev = None
         self.x_der_prev = None
 
-    # ------------------------------------------------------------------ #
     # 1-2. Mascara de lineas blancas
-    # ------------------------------------------------------------------ #
     def mascara_blanco(self, pequena):
         roi = pequena[self.y0:, :]
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
@@ -80,9 +78,7 @@ class DetectorPista:
         completa[self.y0:, :] = m
         return completa
 
-    # ------------------------------------------------------------------ #
     # 4. Busqueda de lineas (histograma + ventanas deslizantes)
-    # ------------------------------------------------------------------ #
     def buscar_lineas(self, cenital):
         """
         Hough probabilistico sobre la mascara en vista cenital (sin Canny: la
@@ -144,9 +140,7 @@ class DetectorPista:
         lineas = lineas[:p.MAX_LINEAS]
         return sorted(lineas, key=lambda l: l["x_ref"])
 
-    # ------------------------------------------------------------------ #
     # 5. Eleccion del par de lineas
-    # ------------------------------------------------------------------ #
     def elegir_par(self, lineas):
         w = self.w
         centro = w / 2.0
@@ -172,9 +166,7 @@ class DetectorPista:
         _, izq, der = min(opciones, key=lambda o: o[0])
         return izq, der
 
-    # ------------------------------------------------------------------ #
     # 6. Rectas en imagen original y errores
-    # ------------------------------------------------------------------ #
     def a_imagen_original(self, linea):
         """Proyecta la recta (vista cenital) a la imagen original (escala de proceso)."""
         h = self.h
@@ -217,9 +209,7 @@ class DetectorPista:
             "x_izq": float(x_izq), "x_der": float(x_der), "x_centro": float(x_centro),
         }
 
-    # ------------------------------------------------------------------ #
     # Funcion principal
-    # ------------------------------------------------------------------ #
     def procesar(self, frame_bgr, dibujar=True):
         pequena = cv2.resize(frame_bgr, (self.w, self.h), interpolation=cv2.INTER_AREA)
         mascara = self.mascara_blanco(pequena)
@@ -247,9 +237,7 @@ class DetectorPista:
             salida = self.dibujar(pequena, mascara, resultado, izq_o, der_o)
         return resultado, salida
 
-    # ------------------------------------------------------------------ #
     # Visualizacion (solo la imagen con las lineas detectadas)
-    # ------------------------------------------------------------------ #
     def dibujar(self, pequena, mascara, res, izq_o, der_o):
         out = pequena  # se dibuja encima (ya es una copia reducida)
         out[mascara > 0] = (255, 0, 255)  # pixeles detectados como linea
@@ -269,10 +257,7 @@ class DetectorPista:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
         return out
 
-
-# ---------------------------------------------------------------------- #
 # Funciones de recuperacion (del codigo original, aun no se usan en el nodo)
-# ---------------------------------------------------------------------- #
 def evaluar_recuperacion(lineas, frame_original):
     """Detecta si aparece una linea casi horizontal al frente y decide hacia donde ir."""
     if not lineas:

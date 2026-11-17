@@ -1,24 +1,7 @@
-"""
-Nodo de la camara RealSense D435.
-
-Publica:
-  /camera/color/image   (sensor_msgs/Image, bgr8)
-  /camera/depth/image   (sensor_msgs/Image, 16UC1, en milimetros) -> solo si publicar_profundidad:=true
-
-Optimizaciones para Raspberry Pi 4:
-  - La camara captura a 640x480 @ 15 fps (mismo campo de vision que antes), pero la
-    imagen de color se reduce a 'ancho_publicado' (320 -> 320x240) antes de publicar:
-    ~4x menos datos que copiar/serializar en Python, que es lo que mas CPU gasta.
-    El nodo de pista igual procesa a 320 de ancho, asi que no se pierde nada.
-  - La profundidad viene DESACTIVADA por defecto (hoy ningun nodo la usa).
-    Activar con: --ros-args -p publicar_profundidad:=true
-  - poll_for_frames() no bloquea el executor (wait_for_frames si lo hacia).
-  - QoS "sensor" (best effort, cola 1): nunca se acumulan frames atrasados.
-
-Parametros: ancho, alto, fps, ancho_publicado (0 = sin reducir), publicar_profundidad.
-OJO: resoluciones 16:9 (ej. 424x240) tienen otro campo de vision que 4:3 (640x480):
-si se cambian, hay que recalibrar el trapecio de deteccion_pista_pkg/parametros.py.
-"""
+# Nodo de la camara RealSense D435.
+# Publica:
+#   /camera/color/image   (sensor_msgs/Image, bgr8)
+#   /camera/depth/image   (sensor_msgs/Image, 16UC1, en milimetros) -> solo si publicar_profundidad:=true
 
 import cv2
 import numpy as np
