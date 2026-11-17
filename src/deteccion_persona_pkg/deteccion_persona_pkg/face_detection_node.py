@@ -9,7 +9,18 @@ from ament_index_python.packages import get_package_share_directory
 import os
 
 
-
+def camara_a_indice(camara):
+    """'2' -> 2 ; '/dev/v4l/by-id/...-video-index0' -> numero N de /dev/videoN al que apunta.
+    (Algunas versiones de OpenCV no abren camaras por nombre con CAP_V4L2, pero si por numero.)"""
+    if camara.isdigit():
+        return int(camara)
+    real = os.path.realpath(camara)          # ej: /dev/video4
+    nombre = os.path.basename(real)
+    if not os.path.exists(real) or not nombre.startswith("video") or not nombre[5:].isdigit():
+        raise RuntimeError(
+            f"No existe la camara '{camara}'. Revisa la ruta con: ls -l /dev/v4l/by-id/ "
+            "(usar la que termina en -video-index0 de la webcam)")
+    return int(nombre[5:])
 
 class UserTrackerNode(Node):
     def __init__(self):
@@ -18,7 +29,9 @@ class UserTrackerNode(Node):
         # constantes:
         package_path = get_package_share_directory('deteccion_persona_pkg')
         model_path = os.path.join(package_path, 'face_detection_yunet_2026may.onnx')
-        camera_index = 0  # en computador: 0->camara laptop, 1->camara externa
+        self.declare_parameter("camara", "0")
+        camara = str(self.get_parameter("camara").value)
+        camera_index = camara_a_indice(camara)
         frame_width = 640  # RECALIBRAR RANGO DISTANCIA SI SE CAMBIA
         frame_height = 352 # 352 para que sea divisible por 32 (no influye en ancho de cara)
 

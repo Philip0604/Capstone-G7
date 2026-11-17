@@ -10,7 +10,8 @@ def generate_launch_description():
             package='deteccion_persona_pkg',
             executable='face_detection_node',
             name='face_detection_node',
-            output='screen'
+            output='screen',
+            parameters=[{'camara': '/dev/v4l/by-id/usb-Logitech_HD_Webcam_C270_XXXXXXX-video-index0'}],
         ),
 
     ])
