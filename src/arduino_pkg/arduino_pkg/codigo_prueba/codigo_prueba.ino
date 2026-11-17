@@ -8,12 +8,14 @@ const int PIN_ENC_R_B = 5;   // ENC_R_B -> GIGA D5   encoder B de motor derecho
 //const int PIN_EN_GIGA = 7;  // enable de giga para el and
 
 const int VEL_STOP   = 0;   // -127 max reversa, 0 stop, 127 max avance
-const int VEL_RAPIDO = 120;
-const int VEL_LENTO  = 80;
-const int VEL_MEDIO  = 40;
+const int VEL_RAPIDO = 30;   
+const int VEL_MEDIO  = 20;
+// const int VEL_LENTO  = 20;
 
-int velActual = VEL_STOP;
-int velObjetivo = VEL_STOP;
+int velActualL = VEL_STOP;
+int velObjetivoL = VEL_STOP;
+int velActualR = VEL_STOP;
+int velObjetivoR = VEL_STOP;
 const int VEL_RAMPA = 1;   // aumenta 1 cada MS_RAMPA milisegundos
 const unsigned long MS_RAMPA = 50;
 
@@ -27,7 +29,7 @@ Sabertooth ST(128, Serial2);   // se crea el objeto ST que representa el saberto
 // 5 on: address a 128, 6 off: emergency stop on -> (S2) detenerse si un enable se desactiva (apagar emergency stop hace que no importe el valor en S2)
 
 void encL() { cuentaL += digitalRead(PIN_ENC_L_B) ? 1 : -1; }  // a cuentaL se le suma el resultado del if el pin esta high (1), entonces es 1 y si no entonces es -1
-void encR() { cuentaR += digitalRead(PIN_ENC_R_B) ? 1 : -1; }
+void encR() { cuentaR += digitalRead(PIN_ENC_R_B) ? -1 : 1; }
 
 void ponerLed(bool r, bool g, bool b) {
   digitalWrite(LEDR, r ? LOW : HIGH);
@@ -36,8 +38,8 @@ void ponerLed(bool r, bool g, bool b) {
 }
 
 void actualizarLed() {
-  if (velActual <= VEL_STOP)       ponerLed(true, false, false);
-  else if (velActual <= VEL_LENTO) ponerLed(true, true, false);
+  if (velActualR <= VEL_STOP)       ponerLed(true, false, false);
+  else if (velActualR <= VEL_MEDIO) ponerLed(true, true, false);
   else                             ponerLed(false, true, false);
 }
 
@@ -71,18 +73,21 @@ void setup() {
 void loop() {
   if (Serial3.available()) {
     char c = Serial3.read();
-    int vel = VEL_STOP;
+    int velL = VEL_STOP;
+    int velR = VEL_STOP;
     switch (c) {
-      case 'A': vel = VEL_RAPIDO; break;
-      case 'B': vel = VEL_MEDIO;  break;
-      case 'C': vel = VEL_LENTO;  break;
-      case 'D': vel = VEL_STOP;   break;
+      case 'A': velL = VEL_RAPIDO, velR = VEL_RAPIDO; break;
+      case 'B': velL = VEL_RAPIDO, velR = VEL_MEDIO;  break;
+      case 'C': velL = VEL_MEDIO, velR = VEL_RAPIDO;  break;
+      case 'D': velL, velR = VEL_STOP;   break;
       default:  break;
     }
     if (c == 'A' || c == 'B' || c == 'C' || c == 'D') {
-      velObjetivo = vel;
+      velObjetivoL = velL;
+      velObjetivoR = velR;
       if (c == 'D') {
-        velActual = VEL_STOP;
+        velActualL = VEL_STOP;
+        velActualR = VEL_STOP;
         ST.motor(1, VEL_STOP);   // paran ambos motores (motor 1 y 2)
         ST.motor(2, VEL_STOP);
         actualizarLed();
@@ -90,17 +95,25 @@ void loop() {
       Serial.print("Comando ");
       Serial.print(c);
       Serial.print(" -> velocidad ");
-      Serial.println(vel);
+      Serial.println(velR);
+      Serial.println(velL);
     }
   }
 
-  static uint32_t ultimaRampa = 0;
-  if (millis() - ultimaRampa >= MS_RAMPA && velActual != velObjetivo) {
-    ultimaRampa = millis();
-    if (velActual < velObjetivo)   velActual = min(velActual + VEL_RAMPA, velObjetivo);
-    else                           velActual = max(velActual - VEL_RAMPA, velObjetivo);
-    ST.motor(1, velActual);
-    ST.motor(2, velActual);
+  static uint32_t ultimaRampaL = 0;
+  if (millis() - ultimaRampaL >= MS_RAMPA && velActualL != velObjetivoL) {
+    ultimaRampaL = millis();
+    if (velActualL < velObjetivoL)   velActualL = min(velActualL + VEL_RAMPA, velObjetivoL);
+    else                           velActualL = max(velActualL - VEL_RAMPA, velObjetivoL);
+    ST.motor(1, velActualL);
+    actualizarLed();
+  }
+  static uint32_t ultimaRampaR = 0;
+  if (millis() - ultimaRampaR >= MS_RAMPA && velActualR != velObjetivoR) {
+    ultimaRampaR = millis();
+    if (velActualR < velObjetivoR)   velActualR = min(velActualR + VEL_RAMPA, velObjetivoR);
+    else                           velActualR = max(velActualR - VEL_RAMPA, velObjetivoR);
+    ST.motor(2, velActualR);
     actualizarLed();
   }
 
