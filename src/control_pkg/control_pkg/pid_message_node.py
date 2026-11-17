@@ -1,3 +1,4 @@
+from time import time
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3
@@ -10,12 +11,21 @@ class PIDMessageNode(Node):
         super().__init__("pid_message_node")
 
         # constantes:
-        package_path = get_package_share_directory()  # falta poner locacion package
+        self.declare_parameter("frecuencia", 15.0)     # Hz
+        self.declare_parameter("timeout_pista", 0.3)   # s
+        self.declare_parameter("timeout_distance", 0.3)# s
 
-        # variables:
-        self.distance = 0  # recibe un int
-        self.lat_error = 0.0
-        self.ang_error = 0.0
+        frecuencia = float(self.get_parameter("frecuencia").value)
+        self.timeout_pista = float(self.get_parameter("timeout_pista").value)
+        self.timeout_distance = float(self.get_parameter("timeout_distance").value)
+
+        # variables: None significa que no se recibio el valor aun, y no se publica nada hasta que se reciban los 3 valores
+        self.distance = None  # recibe un int
+        self.lat_error = None
+        self.ang_error = None
+        self.t_lat = 0.0
+        self.t_ang = 0.0
+        self.t_distance = 0.0
 
         # recibe los diferentes valores que vienen de diferentes nodos
         self.sub_distance = self.create_subscription(Int32, "/user_distance", self.user_distance_callback, 10)
@@ -26,28 +36,40 @@ class PIDMessageNode(Node):
         self.pid_pub = self.create_publisher(Vector3,"/pid_data", 10)
 
         # recibe los valores constantemente y los envia con 15fps (mismo fps que camara con mayor fps)
-        self.timer = self.create_timer(1.0 / 15.0, self.public_values)
+        self.timer = self.create_timer(1.0 / frecuencia, self.public_values)
         
         # tambien se crea un log de este nodo para mandar informacion del proceso
         #self.get_logger().info("Inicio de log de los mensajes de valores para pid")
     
     def lat_error_callback(self, msg):
         self.lat_error = msg.data
+        self.t_lat = time.monotonic()
 
     def ang_error_callback(self, msg):
         self.ang_error = msg.data
+        self.t_ang = time.monotonic()
 
     def user_distance_callback(self, msg):
         self.distance = msg.data
+        self.t_distance = time.monotonic()
 
     def public_values(self):
+        if self.lat_error is None or self.ang_error is None or self.distance is None:
+            return
+        ahora = time.monotonic()
+        if ahora - self.t_lat > self.timeout_pista or ahora - self.t_ang > self.timeout_pista:
+            self.get_logger().warn("Pista perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
+            return
+        if ahora - self.t_distance > self.timeout_distance:
+            self.get_logger().warn("Distancia al usuario perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
+            return
+
         # solo se publica un vector cuando llegaron los 3 valores
-        if self.lat_error is not None and self.ang_error is not None and self.distance is not None:
-            msg_vector = Vector3()
-            msg_vector.x = float(self.lat_error)
-            msg_vector.y = float(self.ang_error)
-            msg_vector.z = float(self.distance)
-            self.pid_pub.publish(msg_vector)
+        msg_vector = Vector3()
+        msg_vector.x = float(self.lat_error)
+        msg_vector.y = float(self.ang_error)
+        msg_vector.z = float(self.distance)
+        self.pid_pub.publish(msg_vector)
 
     def destroy_node(self):
         self.cap.release()

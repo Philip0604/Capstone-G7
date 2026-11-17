@@ -14,7 +14,7 @@ class MainNode(Node):
         self.recent_distance = 0.0
         self.speed_aprox = 0.0
         self.user_found = False
-        self.total_distance = 0
+        self.total_distance = 0.0
 
         # subscripciones y timers:
         self.sub_distance = self.create_subscription(Float32, "/distance_traveled", self.distance_callback, 10)
