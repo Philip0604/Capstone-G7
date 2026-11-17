@@ -1,5 +1,4 @@
-// Código motores
-
+// Código motores con micro-ROS, reconexión automática con el agente y control de velocidad y distancia con PID.
 #include <Sabertooth.h>
 #include <Arduino.h>
 #include <math.h>
@@ -12,12 +11,10 @@
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
 #include <rmw_microros/rmw_microros.h>
-
 #include <geometry_msgs/msg/vector3.h>
 // #include <std_msgs/msg/float32.h>
 #include <std_msgs/msg/bool.h>
 // #include <std_msgs/msg/Int32.h>
-
 
 // DRIVER MOTORES
 Sabertooth ST(128, Serial2);   // se crea "ST" que representa el sabertooth con address 128 y en serial2 (deberia ser serial1, pero parece que no xd)
@@ -42,25 +39,19 @@ const unsigned long REPETIR_STOP_MS = 250;        // mientras esta detenido, se 
 const unsigned long PING_ESPERANDO_MS = 500;      // cada cuanto se busca al agente si no hay conexion
 const unsigned long PING_CONECTADO_MS = 500;      // cada cuanto se revisa que el agente siga vivo
 
-// RPM que alcanza la rueda con el comando maximo del Sabertooth (127).
-// Pololu 4752 (30:1) da ~330 rpm a 12 V sin carga: MEDIRLO en el robot (ver abajo).
-const float RPM_CON_127 = 330.0f;
-
-// PID de velocidad: valores iniciales, requieren calibracion (f para Float32; calculos mas rapidos)
-const float KP_VEL = 1.5f;
+// Ganancias PID y objetivos
+const float KP_VEL = 1.5f; // PID de velocidad: valores iniciales, requieren calibracion (f para Float32; calculos mas rapidos)
 const float KI_VEL = 0.8f;
 const float KD_VEL = 0.08f;
 
-// PID de distancia: valores iniciales, requieren calibracion
-const float KP_DIST = 1.5f;
+const float KP_DIST = 1.5f; // PID de distancia: valores iniciales, requieren calibracion
 const float KI_DIST = 0.8f;
 const float KD_DIST = 0.08f;
 
-const float DISTANCIA_OBJETIVO = 35.0f;   // equivale a alrededor de 2.5 metros de distancia
+const float KP_LATERAL = 2.0f; // Ganancias de trayectoria: valores iniciales, requieren calibracion
+const float KP_ANGULAR = 2.0f;
 
-// Ganancias de trayectoria: valores iniciales, requieren calibracion
-const float KP_LATERAL = 20.0f;
-const float KP_ANGULAR = 20.0f;
+const float DISTANCIA_OBJETIVO = 35.0f;   // equivale a alrededor de 2.5 metros de distancia
 
 // ENCODERS -> pins y funciones
 const int PIN_ENC_L_A = 2;   // ENC_L_A -> GIGA D2   encoder A de motor izquierdo
@@ -77,8 +68,7 @@ long anteriorR = 0;
 void encL() { cuentaL += digitalRead(PIN_ENC_L_B) ? 1 : -1; }  // a cuentaL se le suma el resultado de: if el pin esta high (1), entonces es 1 y si no entonces es -1
 void encR() { cuentaR += digitalRead(PIN_ENC_R_B) ? 1 : -1; }  // cambiar de lugar el 1 con el -1 si un encoder da valores negativos (muy probable)
 
-// PID DE VELOCIDAD
-class PIDVelocidad {
+class PIDVelocidad { // PID DE VELOCIDAD
     public:
         float integral = 0;
         float errorAnterior = 0;
@@ -93,12 +83,10 @@ class PIDVelocidad {
 
             // El objetivo es la velocidad deseada, actual es la velocidad medida, ambas en RPM. Se calcula la salida del PID.
             float salida = (KP_VEL * error) + (KI_VEL * integralNueva) + (KD_VEL * derivada);
-
             // Limitar salida PWM y evitar acumulacion excesiva (anti windup basico)
             if (salida >= 0 && salida <= RPM_MAX) {
                 integral = integralNueva;
             }
-
             salida = (KP_VEL * error) + (KI_VEL * integral) + (KD_VEL * derivada);
 
             errorAnterior = error;
@@ -125,24 +113,24 @@ class PIDDistancia {
             float integralNueva = integral + error * dt;
 
             float salida = (KP_DIST * error) + (KI_DIST * integralNueva) + (KD_DIST * derivada);
-
             // Limitar salida PWM y evitar acumulacion excesiva (anti windup basico)
             if (salida >= 0 && salida <= RPM_MAX) {
                 integral = integralNueva;
             }
-
             salida = (KP_DIST * error) + (KI_DIST * integral) + (KD_DIST * derivada);
+
             errorAnterior = error;
             return constrain(salida, 0.0f, (float)RPM_MAX);
         }
+
         void reiniciar() {
             integral = 0;
             errorAnterior = 0;
             primero = true;
         }
 };
-PIDDistancia pidDistancia;
 
+PIDDistancia pidDistancia;
 PIDVelocidad pidLeft, pidRight;
 
 // ESTADO
@@ -152,11 +140,13 @@ volatile int distancia = 0;           // Vector3.z    // en realidad es el ancho
 
 unsigned long ultimaOrden = 0;
 unsigned long ultimoControl = 0;
+unsigned long ultimaCara = 0;
+unsigned long ultimoStop = 0;
 long anteriorLeft = 0, anteriorRight = 0;
 
 volatile bool usuarioDetectado = false;
 bool ordenRecibida = false;
-
+bool motoresDetenidos = false;   // false para que el primer detenerMotores() mande el stop altiro
 
 // VARIABLES MICRO-ROS
 rcl_node_t node;
@@ -170,11 +160,16 @@ geometry_msgs__msg__Vector3 vec_para_pid;
 rcl_subscription_t sub_cara_detectada;
 std_msgs__msg__Bool msg_cara_detectada;
 
-rcl_publisher_t pub_btn_control;    // editar para publicar estado de botones A.B,C y D (tal vez hacer un vector de bools si se puede)
-std_msgs__msg__Bool msg_pub_btn;
+// Estados de la conexion con el agente (Raspberry)
+enum EstadoConexion { ESPERANDO_AGENTE, AGENTE_DISPONIBLE, CONECTADO, DESCONECTADO };
+EstadoConexion estadoConexion = ESPERANDO_AGENTE;
+unsigned long ultimoPing = 0;
 
-float bufferControl[2];
-float bufferEstado[4];
+rcl_publisher_t pub_btn_control;    // editar para publicar estado de botones A.B,C y D (tal vez hacer un vector de bools si se puede)
+std_msgs__msg__Bool msg_pub_btn;    // No se usa aún
+
+float bufferControl[2];             // No se usa aún
+float bufferEstado[4];              // No se usa aún
 
 void callback_valores_pid(const void * msgin) {
     const geometry_msgs__msg__Vector3 * msg =
@@ -193,9 +188,116 @@ void callback_cara_detectada(const void * msgin) {
         (const std_msgs__msg__Bool *)msgin;
 
     usuarioDetectado = msg->data;
+    ultimaCara = millis();
 }
 
-// rmw_uros_ping_agent --------------------------------------------------------------------------------------
+// Creacion - destruccion de las entidades micro-ROS (nodo, suscripciones, executor) cada vez que se (re)conecta el agente.
+// Esto permite que si el agente se cierra, se pierda la conexion y luego se vuelva a abrir, el Arduino pueda reconectarse sin reiniciarse.
+// Obtenido de: https://github.com/micro-ROS/micro_ros_arduino/blob/kilted/examples/micro-ros_reconnection_example/micro-ros_reconnection_example.ino
+bool crearEntidades() {
+    allocator = rcl_get_default_allocator();
+
+    // Todo en "cero" antes de crear, para que destruirEntidades() sea seguro si algo falla a medias
+    node = rcl_get_zero_initialized_node();
+    sub_valores_pid = rcl_get_zero_initialized_subscription();
+    sub_cara_detectada = rcl_get_zero_initialized_subscription();
+    executor = rclc_executor_get_zero_initialized_executor();
+
+    // Crear nodo y suscripciones y verificar que no haya errores. Si hay error, se sale y se destruyen las entidades (si es que se crearon).
+    if (rclc_support_init(&support, 0, NULL, &allocator) != RCL_RET_OK) return false;
+    if (rclc_node_init_default(&node, "control_motores", "", &support) != RCL_RET_OK) return false;
+    if (rclc_subscription_init_default(
+            &sub_valores_pid, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
+            "/pid_data") != RCL_RET_OK) return false;
+    if (rclc_subscription_init_default(
+            &sub_cara_detectada, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
+            "/user_detected") != RCL_RET_OK) return false;
+
+    if (rclc_executor_init(&executor, &support.context, 2, &allocator) != RCL_RET_OK) return false; // EXECUTOR (2 = cantidad de suscripciones)
+    if (rclc_executor_add_subscription(&executor, &sub_valores_pid, &vec_para_pid,
+            &callback_valores_pid, ON_NEW_DATA) != RCL_RET_OK) return false;
+    if (rclc_executor_add_subscription(&executor, &sub_cara_detectada, &msg_cara_detectada,
+            &callback_cara_detectada, ON_NEW_DATA) != RCL_RET_OK) return false;
+
+    return true;
+}
+
+void destruirEntidades() {
+    // Timeout 0: no esperar respuesta del agente (puede que ya no exista)
+    rmw_context_t * rmw_context = rcl_context_get_rmw_context(&support.context);
+    (void) rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
+    (void) rcl_subscription_fini(&sub_valores_pid, &node);
+    (void) rcl_subscription_fini(&sub_cara_detectada, &node);
+    (void) rclc_executor_fini(&executor);
+    (void) rcl_node_fini(&node);
+    (void) rclc_support_fini(&support);
+}
+
+//  Maquina de estados de la conexion. Se llama en cada vuelta del loop.
+//   ESPERANDO_AGENTE  -> ping cada 0.5 s hasta que el agente responda
+//   AGENTE_DISPONIBLE -> crear nodo y suscripciones
+//   CONECTADO         -> recibir mensajes; ping cada 0.5 s para saber si sigue vivo
+//   DESCONECTADO      -> destruir todo y volver a esperar
+void gestionarConexion() {
+    unsigned long ahora = millis();
+
+    switch (estadoConexion) {
+        case ESPERANDO_AGENTE:
+            if (ahora - ultimoPing >= PING_ESPERANDO_MS) {
+                ultimoPing = ahora;
+                if (rmw_uros_ping_agent(100, 1) == RMW_RET_OK) {
+                    estadoConexion = AGENTE_DISPONIBLE;
+                }
+            }
+            break;
+
+        case AGENTE_DISPONIBLE:
+            if (crearEntidades()) {
+                estadoConexion = CONECTADO;
+                ultimoPing = ahora;
+            } else {
+                destruirEntidades();
+                estadoConexion = ESPERANDO_AGENTE;
+            }
+            break;
+
+        case CONECTADO:
+            if (ahora - ultimoPing >= PING_CONECTADO_MS) {
+                ultimoPing = ahora;
+                if (rmw_uros_ping_agent(50, 2) != RMW_RET_OK) {
+                    estadoConexion = DESCONECTADO;
+                    break;
+                }
+            }
+            rclc_executor_spin_some(&executor, RCL_MS_TO_NS(5)); // procesar mensajes ROS 2 entrantes
+            break;
+
+        case DESCONECTADO:
+            destruirEntidades(); // Olvidar los ultimos datos: al reconectar se espera informacion nueva
+            ordenRecibida = false;
+            usuarioDetectado = false;
+            estadoConexion = ESPERANDO_AGENTE;
+            break;
+    }
+}
+
+// Motores
+void detenerMotores(unsigned long ahora) {  // Detiene los motores. Se repite cada REPETIR_STOP_MS (no cada vuelta del loop, o llenaria el Serial2 y frenaria el loop).
+    if (!motoresDetenidos || ahora - ultimoStop >= REPETIR_STOP_MS) {
+        ST.motor(1, 0);
+        ST.motor(2, 0);
+        ultimoStop = ahora;
+    }
+    if (!motoresDetenidos) {
+        pidLeft.reiniciar();
+        pidRight.reiniciar();
+        pidDistancia.reiniciar();
+    }
+    motoresDetenidos = true;
+}
+
 // SETUP
 void setup() {
     pinMode(PIN_ENC_L_A, INPUT);
@@ -206,113 +308,60 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(PIN_ENC_R_A), encR, RISING);
 
     // Serial reservado para ros (no se le hace begin y no se puede usar para imprimir)
-    Serial2.begin(9600); // serial2 para motores. 9600 es el default   (pin D18 arduino conectado a S1 sabertooth)
-    Serial3.begin(115200); // serial3 para comunicacion esp            (pin D17 esp con arduino o con raspi)
-    ST.setTimeout(1000); // para que si no llegan comandos nuevos dentro de 1 segundos se detienen los motores (settimeout(0) para desactivar)
-                       // un delay en el codigo puede activar el timeout!!
+    Serial2.begin(9600);    // serial2 para motores. 9600 es el default (pin D18 arduino conectado a S1 sabertooth)
+    Serial3.begin(115200);  // serial3 para comunicacion esp            (pin D17 esp con arduino o con raspi)
+    ST.setTimeout(1000);    // para que si no llegan comandos nuevos dentro de 1 segundos se detienen los motores (settimeout(0) para desactivar)
+                            // un delay en el codigo puede activar el timeout!!
+    ST.motor(1, 0);
+    ST.motor(2, 0);
 
-    // Iniciacion MICRO-ROS (nodos, subscribers, publishers, etc)
+    // MICRO-ROS: solo se configura el transporte. La conexion con el agente la
+    // maneja gestionarConexion() en el loop (y se reconecta sola si se pierde).
     set_microros_transports();  // solo usar serial para microros y no serial.print
-    delay(1000);
-
-    while (rmw_uros_ping_agent(100, 1) != RMW_RET_OK) {  // se espera a que el agente de microros en la raspi este activa
-        ST.motor(1, 0);
-        ST.motor(2, 0);
-        delay(100);
-    }
-
-    allocator = rcl_get_default_allocator();
-    rclc_support_init(&support, 0, NULL, &allocator);
-    rclc_node_init_default(&node, "control_motores", "", &support);
-
-    // Subscriber
-    rclc_subscription_init_default(
-        &sub_valores_pid,
-        &node,
-        ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Vector3),
-        "/pid_data"
-    );
-    rclc_subscription_init_default(
-        &sub_cara_detectada,
-        &node,
-        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
-        "/user_detected"
-    );
-
-    // Publisher
-    // rclc_publisher_init_default(
-    //     &publisher,
-    //     &node,
-    //     ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
-    //     "/motor_status"
-    // );
-
-    // CONFIGURACIÓN DE MENSAJES  --> no usado para geometry..Vector3
-    // mensajeEstado.data.data = bufferEstado;
-    // mensajeEstado.data.capacity = 4;
-    // mensajeEstado.data.size = 4;
-
-    // EXECUTOR
-    rclc_executor_init(&executor, &support.context, 2, &allocator);
-    rclc_executor_add_subscription(&executor, &sub_valores_pid, &vec_para_pid, &callback_valores_pid, ON_NEW_DATA);
-    rclc_executor_add_subscription(&executor, &sub_cara_detectada, &msg_cara_detectada, &callback_cara_detectada, ON_NEW_DATA);
-
-    ultimoControl = millis();
+    delay(100);
 }
 
-
-
-// LOOP
-void loop() {
-    // Procesar mensajes ROS 2 entrantes
-    rclc_executor_spin_some(&executor, RCL_MS_TO_NS(5));
-
-    unsigned long ahora = millis();
-
-    // Si se pierde la comunicacion, detener el robot.
-    if (!ordenRecibida || ahora - ultimaOrden > TIMEOUT_RASPBERRY_MS) {
-        ST.motor(1, 0);
-        ST.motor(2, 0);
-        pidLeft.reiniciar();
-        pidRight.reiniciar();
-        pidDistancia.reiniciar();
+// Se crea una función encargada de realizar el control de los motores, que se llama en cada vuelta del loop.
+// Esto permite que si se pierde la comunicación con la Raspberry, el robot se detenga automáticamente.
+void controlar(unsigned long ahora) {
+    // Al volver de estar detenido: partir el control "desde cero" (si no, dt y la diferencia de encoders incluirian todo el tiempo detenido).
+    if (motoresDetenidos) {
+        noInterrupts();
+        anteriorL = cuentaL;
+        anteriorR = cuentaR;
+        interrupts();
+        ultimoControl = ahora;
+        motoresDetenidos = false;
         return;
     }
 
-    if (ahora - ultimoControl < DT_MS) return;  // se sale del loop si han pasado menos de DT milisegundos ya que sigue con otra tarea
+    if (ahora - ultimoControl < DT_MS) return;  // sale del loop si han pasado menos de DT milisegundos ya que sigue con otra tarea
 
     float dt = (ahora - ultimoControl) / 1000.0f;  // se updatea dt por si acaso hizo return antes
     ultimoControl = ahora;
 
     if (dt <= 0.0f) return;   // se sale del loop por si acaso dt es 0 (se haria division por 0 en rpmleft y right)
 
-    noInterrupts(); // para que al obtener l y r no se detenga el codigo
+    noInterrupts(); // para que al obtener l y r sus valores no cambien mientras se leen
     long l = cuentaL, r = cuentaR;
     interrupts();
 
-    long deltaL = l- anteriorL;  // se calcula que tanto aumento el valor de los encoders
+    long deltaL = l - anteriorL;  // se calcula que tanto aumento el valor de los encoders
     long deltaR = r - anteriorR;
     anteriorL = l;
     anteriorR = r;
 
-    float rpmLeft = deltaL * 60.0 / (PULSOS_VUELTA_LEFT * dt);
-    float rpmRight = deltaR * 60.0 / (PULSOS_VUELTA_RIGHT * dt);
+    float rpmLeft = deltaL * 60.0f / (PULSOS_VUELTA_LEFT * dt);
+    float rpmRight = deltaR * 60.0f / (PULSOS_VUELTA_RIGHT * dt);
+
+    // Velocidad base segun la distancia al usuario (mientras mas cerca esta la persona, "distancia" aumenta por ser el ancho de la cara)
+    float errorDist = (float)distancia - DISTANCIA_OBJETIVO;  // actual - objetivo (mientras mas cerca esta la persona, "distancia" aumenta por ser el ancho de la cara)
+    float rpmBaseDinamica = pidDistancia.calcular(errorDist, dt);
 
     // La Raspberry determina el sentido de la correccion con los errores.
     float correccion = KP_LATERAL * errorLateral + KP_ANGULAR * errorAngular;
-
-    if (!usuarioDetectado) {
-        ST.motor(1, 0);
-        ST.motor(2, 0);
-        pidLeft.reiniciar();
-        pidRight.reiniciar();
-        pidDistancia.reiniciar();
-        return;
-    }
-
-    float rpmBaseDinamica = 0.0f;
-    float errorDist = (float)distancia - DISTANCIA_OBJETIVO;  // actual - objetivo (mientras mas cerca esta la persona, "distancia" aumenta por ser el ancho de la cara)
-    rpmBaseDinamica = pidDistancia.calcular(errorDist, dt);
+    // La correccion no puede ser mayor que la velocidad base: si el robot esta esperando al usuario (base = 0) no gira en el lugar, y al avanzar lento gira suave.
+    correccion = constrain(correccion, -rpmBaseDinamica, rpmBaseDinamica);
 
     float objetivoLeft = constrain(rpmBaseDinamica - correccion, 0.0, RPM_MAX);   // invertir signos si dobla a direccion opuesta
     float objetivoRight = constrain(rpmBaseDinamica + correccion, 0.0, RPM_MAX);  // cambiar por RPM_BASE para testear pid de rpmleft y right
@@ -326,3 +375,25 @@ void loop() {
     ST.motor(2, velRight);
 }
 
+// LOOP
+void loop() {
+    gestionarConexion();
+    unsigned long ahora = millis();
+
+    if (estadoConexion != CONECTADO) { // Sin conexion con la Raspberry -> detenido
+        detenerMotores(ahora);
+        return;
+    }
+
+    if (!ordenRecibida || ahora - ultimaOrden > TIMEOUT_RASPBERRY_MS) { // Sin ordenes recientes (pista perdida o nodo caido) -> detenido
+        detenerMotores(ahora);
+        return;
+    }
+
+    if (!usuarioDetectado || (ahora - ultimaCara > TIMEOUT_CARA_MS)) { // Sin usuario (o sin noticias del nodo de la cara hace rato) -> detenido
+        detenerMotores(ahora);
+        return;
+    }
+
+    controlar(ahora);
+}
