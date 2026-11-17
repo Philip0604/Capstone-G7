@@ -11,7 +11,7 @@ def generate_launch_description():
             executable='face_detection_node',
             name='face_detection_node',
             output='screen',
-            parameters=[{'camara': '/dev/v4l/by-id/usb-Logitech_HD_Webcam_C270_XXXXXXX-video-index0'}],
+            parameters=[{'camara': '/dev/v4l/by-id/usb-046d_C270_HD_WEBCAM_200901010001-video-index0'}],
         ),
 
     ])
