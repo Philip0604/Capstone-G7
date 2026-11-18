@@ -1,4 +1,4 @@
-from time import time
+import time
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3
@@ -72,7 +72,6 @@ class PIDMessageNode(Node):
         self.pid_pub.publish(msg_vector)
 
     def destroy_node(self):
-        self.cap.release()
         super().destroy_node()
 
 
