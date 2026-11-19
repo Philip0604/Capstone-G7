@@ -58,12 +58,12 @@ class PIDMessageNode(Node):
         if self.lat_error is None or self.ang_error is None or self.distance is None:
             return
         ahora = time.monotonic()
-        if ahora - self.t_lat > self.timeout_pista or ahora - self.t_ang > self.timeout_pista:
-            self.get_logger().warn("Pista perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
-            return
-        if ahora - self.t_distance > self.timeout_distance:
-            self.get_logger().warn("Distancia al usuario perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
-            return
+        # if ahora - self.t_lat > self.timeout_pista or ahora - self.t_ang > self.timeout_pista:
+        #     self.get_logger().warn("Pista perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
+        #     return
+        # if ahora - self.t_distance > self.timeout_distance:
+        #     self.get_logger().warn("Distancia al usuario perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
+        #     return
 
         # solo se publica un vector cuando llegaron los 3 valores
         msg_vector = Vector3()
