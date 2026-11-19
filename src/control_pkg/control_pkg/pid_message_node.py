@@ -52,6 +52,7 @@ class PIDMessageNode(Node):
     def user_distance_callback(self, msg):
         self.distance = msg.data
         self.t_distance = time.monotonic()
+        self.get_logger().info(f"Distancia al usuario: {self.distance} (ancho px cara)", throttle_duration_sec=2.0)
 
     def public_values(self):
         if self.lat_error is None or self.ang_error is None or self.distance is None:
