@@ -106,9 +106,9 @@ class LaneDetectionNode(Node):
         else:
             self.lat_f = self.ang_f = None  # al recuperar la pista se parte de cero
 
-        if dibujar and salida is not None:
-            cv2.imshow(VENTANA, salida)
-            cv2.waitKey(1)
+        # if dibujar and salida is not None:
+        #     cv2.imshow(VENTANA, salida)
+        #     cv2.waitKey(1)
 
         self.reportar()
 
