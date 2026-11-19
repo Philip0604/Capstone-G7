@@ -44,10 +44,12 @@ class PIDMessageNode(Node):
     def lat_error_callback(self, msg):
         self.lat_error = msg.data
         self.t_lat = time.monotonic()
+        self.get_logger().info(f"Error lateral: {self.lat_error}", throttle_duration_sec=2.0)
 
     def ang_error_callback(self, msg):
         self.ang_error = msg.data
         self.t_ang = time.monotonic()
+        self.get_logger().info(f"Error angular: {self.ang_error}", throttle_duration_sec=2.0)
 
     def user_distance_callback(self, msg):
         self.distance = msg.data
