@@ -8,9 +8,9 @@ const int PIN_ENC_R_B = 5;   // ENC_R_B -> GIGA D5   encoder B de motor derecho
 //const int PIN_EN_GIGA = 7;  // enable de giga para el and
 
 const int VEL_STOP   = 0;   // -127 max reversa, 0 stop, 127 max avance
-const int VEL_RAPIDO = 30;   
-const int VEL_MEDIO  = 20;
-// const int VEL_LENTO  = 20;
+const int VEL_RAPIDO = 100;   
+const int VEL_MEDIO  = 75;
+const int VEL_LENTO  = 50;
 
 int velActualL = VEL_STOP;
 int velObjetivoL = VEL_STOP;
@@ -22,13 +22,18 @@ const unsigned long MS_RAMPA = 50;
 volatile long cuentaL = 0;
 volatile long cuentaR = 0;
 
+long anteriorL = 0;    // cuenta pasada de los encoders R y L
+long anteriorR = 0;
+
+const float PULSOS_VUELTA = 480.0f;
+
 Sabertooth ST(128, Serial2);   // se crea el objeto ST que representa el sabertooth con el address 128
                                // serial1 para ocupar el pin d18 tx1 conectado a s1
 // DIP sw: 1-OFF 2-OFF 3-OFF 4-ON 5-ON 6-OFF
 // 1,2 off: libreria sabertooth, 3 off: proteccion bateria, 4 on: escucha packet serial,
 // 5 on: address a 128, 6 off: emergency stop on -> (S2) detenerse si un enable se desactiva (apagar emergency stop hace que no importe el valor en S2)
 
-void encL() { cuentaL += digitalRead(PIN_ENC_L_B) ? 1 : -1; }  // a cuentaL se le suma el resultado del if el pin esta high (1), entonces es 1 y si no entonces es -1
+void encL() { cuentaL += digitalRead(PIN_ENC_L_B) ? 1 : -1; }  // a cuentaL se le suma el resultado del: if el pin esta high, entonces es 1 y si no entonces es -1
 void encR() { cuentaR += digitalRead(PIN_ENC_R_B) ? -1 : 1; }
 
 void ponerLed(bool r, bool g, bool b) {
@@ -76,9 +81,15 @@ void loop() {
     int velL = VEL_STOP;
     int velR = VEL_STOP;
     switch (c) {
+      // Test girar:
+      // case 'A': velL = VEL_RAPIDO, velR = VEL_RAPIDO; break;
+      // case 'B': velL = VEL_RAPIDO, velR = VEL_MEDIO;  break;
+      // case 'C': velL = VEL_MEDIO, velR = VEL_RAPIDO;  break;
+
+      // Test velocidades
       case 'A': velL = VEL_RAPIDO, velR = VEL_RAPIDO; break;
-      case 'B': velL = VEL_RAPIDO, velR = VEL_MEDIO;  break;
-      case 'C': velL = VEL_MEDIO, velR = VEL_RAPIDO;  break;
+      case 'B': velL = VEL_MEDIO, velR = VEL_MEDIO;  break;
+      case 'C': velL = VEL_LENTO, velR = VEL_LENTO;  break;
       case 'D': velL, velR = VEL_STOP;   break;
       default:  break;
     }
@@ -123,10 +134,26 @@ void loop() {
     noInterrupts();
     long l = cuentaL, r = cuentaR;
     interrupts();
+
+    long deltaL = l - anteriorL;  // se calcula que tanto aumento el valor de los encoders
+    long deltaR = r - anteriorR;
+    anteriorL = l;
+    anteriorR = r;
+
+    // revoluciones por minuto de cada rueda medidas con valores de encoders
+    float rpmLeft = deltaL * 60.0f / (PULSOS_VUELTA * 0.5);
+    float rpmRight = deltaR * 60.0f / (PULSOS_VUELTA * 0.5);
+
     Serial.print("Encoders  L=");
     Serial.print(l);
     Serial.print("  R=");
-    Serial.println(r);
+    Serial.print(r);
+    // Serial.print("  Diferencia=");
+    // Serial.print(deltaR - deltaL);
+    Serial.print("  RPML=");
+    Serial.print(rpmLeft);
+    Serial.print("  RPMR=");
+    Serial.println(rpmRight);
   }
 
 }

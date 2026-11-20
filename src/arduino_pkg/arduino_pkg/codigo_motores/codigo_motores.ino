@@ -26,12 +26,14 @@ Sabertooth ST(128, Serial2);   // se crea "ST" que representa el sabertooth con 
 // 6 ON: emergency stop off -> detenerse si un enable se desactiva (A1 y A2 deben estar high para que M1 y M2 funcionen)
 
 // PARAMETROS DE CONTROL
-const int RPM_BASE = 40;    // -127 full reversa, 0 stop, 127 full avance
-const int RPM_MAX = 120;
+const int RPM_BASE = 40;
+const int RPM_MAX = 160;   // rpm max estimada multiplicando 0.75 por el rpm max sin ruedas (al medirlo da alrededor de 225 rpm con vel = 100)
+                           // para llegar a 6km/h (1,67m/s) se necesita como 200 rpm, entonces con 160 se llega a una velocidad de 4,8km/h (1,34m/s)
 const int RPM_CORRECCION_MAX = 120.0f;
 
-const float PULSOS_VUELTA_LEFT = 480.0f;    // cantidad de pulsos medidos por encoder por revolucion (valor para pololu 4752 de 1:30)
-const float PULSOS_VUELTA_RIGHT = 480.0f;
+const int CMD_MAX = 100;  // valor maximo para comandos a motores (va de -127 a 127)
+
+const float PULSOS_VUELTA = 480.0f;    // cantidad de pulsos medidos por encoder por revolucion (valor para pololu 4752 de 1:30)
 
 const unsigned long DT_MS = 50;
 const unsigned long TIMEOUT_RASPBERRY_MS = 500;   // sin /pid_data por este tiempo -> detenerse
@@ -45,19 +47,19 @@ const unsigned long PERIODO_LOG_MS = 500;
 const unsigned long PING_ESPERANDO_MS = 500;      // cada cuanto se busca al agente si no hay conexion
 const unsigned long PING_CONECTADO_MS = 500;      // cada cuanto se revisa que el agente siga vivo
 
-// Ganancias PID y objetivos
-const float KP_VEL = 1.5f; // PID de velocidad: valores iniciales, requieren calibracion (f para Float32; calculos mas rapidos)
-const float KI_VEL = 0.8f;
-const float KD_VEL = 0.08f;
+// Ganancias PID y objetivos (f para Float32; calculos mas rapidos)
+const float KP_VEL = 1.0f; // PID de velocidad: calculo de velocidad de cada motor independiente (resultado de pid va de 0 a CMD_MAX)
+const float KI_VEL = 0.5f;
+const float KD_VEL = 0.0f;
 
-const float KP_DIST = 1.5f; // PID de distancia: valores iniciales, requieren calibracion
-const float KI_DIST = 0.8f;
-const float KD_DIST = 0.08f;
+const float KP_DIST = 1.6f; // PID de distancia: calculo de rpm base para ambas ruedas (el resultado del pid esta en rpm, depende de distancia usuario)
+const float KI_DIST = 0.0f; // el resultado va de 0 a rpm max
+const float KD_DIST = 0.0f;
 
 const float KP_LATERAL = 2.0f; // Ganancias de trayectoria: valores iniciales, requieren calibracion
 const float KP_ANGULAR = 2.0f;
 
-const float DISTANCIA_OBJETIVO = 35.0f;   // equivale a alrededor de 2.5 metros de distancia
+const float DISTANCIA_OBJETIVO = 40.0f;   // 35 equivale a alrededor de 2.5 metros de distancia
 
 // ENCODERS -> pins y funciones
 const int PIN_ENC_L_A = 2;   // ENC_L_A -> GIGA D2   encoder A de motor izquierdo
@@ -72,9 +74,9 @@ long anteriorL = 0;    // cuenta pasada de los encoders R y L
 long anteriorR = 0;
 
 void encL() { cuentaL += digitalRead(PIN_ENC_L_B) ? 1 : -1; }  // a cuentaL se le suma el resultado de: if el pin esta high (1), entonces es 1 y si no entonces es -1
-void encR() { cuentaR += digitalRead(PIN_ENC_R_B) ? 1 : -1; }  // cambiar de lugar el 1 con el -1 si un encoder da valores negativos (muy probable)
+void encR() { cuentaR += digitalRead(PIN_ENC_R_B) ? -1 : 1; }
 
-class PIDVelocidad { // PID DE VELOCIDAD
+class PIDVelocidad { // PID de velocidad de cada rueda individual (de -127 a 127)
     public:
         float integral = 0;
         float errorAnterior = 0;
@@ -89,14 +91,18 @@ class PIDVelocidad { // PID DE VELOCIDAD
 
             // El objetivo es la velocidad deseada, actual es la velocidad medida, ambas en RPM. Se calcula la salida del PID.
             float salida = (KP_VEL * error) + (KI_VEL * integralNueva) + (KD_VEL * derivada);
+
             // Limitar salida PWM y evitar acumulacion excesiva (anti windup basico)
-            if (salida >= 0 && salida <= RPM_MAX) {
+            bool saturadoAlto = (salida > CMD_MAX && error > 0);
+            bool saturadoBajo = (salida < 0 && error < 0);
+            if (!saturadoAlto && !saturadoBajo) {
                 integral = integralNueva;
             }
+
             salida = (KP_VEL * error) + (KI_VEL * integral) + (KD_VEL * derivada);
 
             errorAnterior = error;
-            return constrain((int)round(salida), 0, RPM_MAX);
+            return constrain((int)round(salida), 0, CMD_MAX);
         }
 
         void reiniciar() {
@@ -106,8 +112,7 @@ class PIDVelocidad { // PID DE VELOCIDAD
         }
 };
 
-// PID Distancia
-class PIDDistancia {
+class PIDDistancia { // PID de distancia para la velocidad base dinamica (en rpm)
     public:
         float integral = 0;
         float errorAnterior = 0;
@@ -119,10 +124,14 @@ class PIDDistancia {
             float integralNueva = integral + error * dt;
 
             float salida = (KP_DIST * error) + (KI_DIST * integralNueva) + (KD_DIST * derivada);
+
             // Limitar salida PWM y evitar acumulacion excesiva (anti windup basico)
-            if (salida >= 0 && salida <= RPM_MAX) {
+            bool saturadoAlto = (salida > RPM_MAX && error > 0);
+            bool saturadoBajo = (salida < 0 && error < 0);
+            if (!saturadoAlto && !saturadoBajo) {
                 integral = integralNueva;
             }
+
             salida = (KP_DIST * error) + (KI_DIST * integral) + (KD_DIST * derivada);
 
             errorAnterior = error;
@@ -334,6 +343,9 @@ void controlar(unsigned long ahora) {
         anteriorL = cuentaL;
         anteriorR = cuentaR;
         interrupts();
+        pidDistancia.reiniciar();
+        pidLeft.reiniciar();
+        pidRight.reiniciar();
         ultimoControl = ahora;
         motoresDetenidos = false;
         return;
@@ -355,37 +367,50 @@ void controlar(unsigned long ahora) {
     anteriorL = l;
     anteriorR = r;
 
-    float rpmLeft = deltaL * 60.0f / (PULSOS_VUELTA_LEFT * dt);
-    float rpmRight = deltaR * 60.0f / (PULSOS_VUELTA_RIGHT * dt);
+    // revoluciones por minuto de cada rueda medidas con valores de encoders
+    float rpmLeft = deltaL * 60.0f / (PULSOS_VUELTA * dt);
+    float rpmRight = deltaR * 60.0f / (PULSOS_VUELTA * dt);
 
     // Velocidad base segun la distancia al usuario (mientras mas cerca esta la persona, "distancia" aumenta por ser el ancho de la cara)
-    float errorDist = (float)distancia - DISTANCIA_OBJETIVO;  // actual - objetivo (mientras mas cerca esta la persona, "distancia" aumenta por ser el ancho de la cara)
+    // esta velocidad esta en unidades de medida de rpm (output de pid distancia: rpm)
+    float errorDist = (float)distancia - DISTANCIA_OBJETIVO;  // revisar signo ya que mientras mas cerca esta la persona, "distancia" aumenta por ser el ancho de la cara
     float rpmBaseDinamica = pidDistancia.calcular(errorDist, dt);
+    
+    // para testear pid distancia
+    errorLateral = 0.0;
+    errorAngular = 0.0;
 
     // La Raspberry determina el sentido de la correccion con los errores.
     float correccion = KP_LATERAL * errorLateral + KP_ANGULAR * errorAngular;
-    // La correccion no puede ser mayor que la velocidad base: si el robot esta esperando al usuario (base = 0) no gira en el lugar, y al avanzar lento gira suave.
+    // La correccion no puede ser mayor que los rpm base: si el robot esta esperando al usuario (base = 0) no gira en el lugar, y al avanzar lento gira suave.
     correccion = constrain(correccion, -rpmBaseDinamica, rpmBaseDinamica);
 
     float objetivoLeft = constrain(rpmBaseDinamica - correccion, 0.0, RPM_MAX);   // invertir signos si dobla a direccion opuesta
-    float objetivoRight = constrain(rpmBaseDinamica + correccion, 0.0, RPM_MAX);  // cambiar por RPM_BASE para testear pid de rpmleft y right
+    float objetivoRight = constrain(rpmBaseDinamica + correccion, 0.0, RPM_MAX);
 
-    // PID independiente para cada rueda.
-    int velLeft = pidLeft.calcular(objetivoLeft, rpmLeft, dt);
-    int velRight = pidRight.calcular(objetivoRight, rpmRight, dt);
+    // PID independiente para cada rueda. Se calcula el valor necesario para el comando de cada rueda
+    int velLeft = 0;
+    int velRight = 0;
 
-    // valores para el log
-    logBase = rpmBaseDinamica; logObjL = objetivoLeft; logObjR = objetivoRight;
-    logRpmL = rpmLeft; logRpmR = rpmRight; logVelL = velLeft; logVelR = velRight;
-    if (rpmBaseDinamica <= 0.0f) {
-        motivo = "QUIETO: velocidad base 0 (usuario lejos o a la distancia objetivo: cara <= 35 px)";
+    if (rpmBaseDinamica <= 0.0f) { // solo avanza si el usuario esta mas cerca de la distancia objetivo (cuando "distancia" >= 35)
+        // pidLeft.reiniciar();
+        // pidRight.reiniciar();
+        velLeft = pidLeft.calcular(0, rpmLeft, dt);
+        velRight = pidRight.calcular(0, rpmRight, dt);
+        motivo = "QUIETO: velocidad base 0 (usuario lejos o a la distancia objetivo: cara <= ancho objetivo (en px))";
     } else {
+        velLeft = pidLeft.calcular(objetivoLeft, rpmLeft, dt);
+        velRight = pidRight.calcular(objetivoRight, rpmRight, dt);
         motivo = "MOVIENDO";
     }
 
     // para avanzar, ambos valores son positivos
     ST.motor(1, velLeft);
     ST.motor(2, velRight);
+
+    // valores para el log
+    logBase = rpmBaseDinamica; logObjL = objetivoLeft; logObjR = objetivoRight;
+    logRpmL = rpmLeft; logRpmR = rpmRight; logVelL = velLeft; logVelR = velRight;
 }
 
 // LOGS: publica un texto en /arduino/estado con el motivo y los valores del control.
@@ -426,7 +451,7 @@ void setup() {
     // Serial reservado para ros (no se le hace begin y no se puede usar para imprimir)
     Serial2.begin(9600);    // serial2 para motores. 9600 es el default (pin D18 arduino conectado a S1 sabertooth)
     Serial3.begin(115200);  // serial3 para comunicacion esp            (pin D17 esp con arduino o con raspi)
-    ST.setTimeout(1000);    // para que si no llegan comandos nuevos dentro de 1 segundos se detienen los motores (settimeout(0) para desactivar)
+    ST.setTimeout(0);    // para que si no llegan comandos nuevos dentro de 1 segundos se detienen los motores (settimeout(0) para desactivar)
                             // un delay en el codigo puede activar el timeout!!
     ST.motor(1, 0);
     ST.motor(2, 0);
