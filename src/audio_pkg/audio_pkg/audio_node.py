@@ -36,10 +36,11 @@ class MainNode(Node):
         self.user_found = msg.data
 
     def arduino_info(self):
-        self.get_logger().info(
-            f"Distancia recorrida: {self.total_distance:.2f} m | "
-            f"Velocidad aproximada: {self.speed_aprox:.2f} m/s | "
-            f"Usuario encontrado: {'Sí' if self.user_found else 'No'}")
+        # self.get_logger().info(
+        #     f"Distancia recorrida: {self.total_distance:.2f} m | "
+        #     f"Velocidad aproximada: {self.speed_aprox:.2f} m/s | "
+        #     f"Usuario encontrado: {'Sí' if self.user_found else 'No'}")
+        pass
 
     def destroy_node(self):
         super().destroy_node()

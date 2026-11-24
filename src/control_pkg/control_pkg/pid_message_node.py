@@ -1,4 +1,4 @@
-from time import time
+import time
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3
@@ -44,26 +44,37 @@ class PIDMessageNode(Node):
     def lat_error_callback(self, msg):
         self.lat_error = msg.data
         self.t_lat = time.monotonic()
+        self.get_logger().info(f"Error lateral: {self.lat_error}", throttle_duration_sec=2.0)
 
     def ang_error_callback(self, msg):
         self.ang_error = msg.data
         self.t_ang = time.monotonic()
+        self.get_logger().info(f"Error angular: {self.ang_error}", throttle_duration_sec=2.0)
 
     def user_distance_callback(self, msg):
         self.distance = msg.data
         self.t_distance = time.monotonic()
+        self.get_logger().info(f"Distancia al usuario: {self.distance} (ancho px cara)", throttle_duration_sec=2.0)
 
     def public_values(self):
-        if self.lat_error is None or self.ang_error is None or self.distance is None:
-            return
+        # if self.lat_error is None or self.ang_error is None or self.distance is None:
+        #     return
         ahora = time.monotonic()
-        if ahora - self.t_lat > self.timeout_pista or ahora - self.t_ang > self.timeout_pista:
-            self.get_logger().warn("Pista perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
-            return
-        if ahora - self.t_distance > self.timeout_distance:
-            self.get_logger().warn("Distancia al usuario perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
-            return
-
+        # if ahora - self.t_lat > self.timeout_pista or ahora - self.t_ang > self.timeout_pista:
+        #     self.get_logger().warn("Pista perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
+        #     return
+        # if ahora - self.t_distance > self.timeout_distance:
+        #     self.get_logger().warn("Distancia al usuario perdida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
+        #     return
+        if self.lat_error is None:
+            self.get_logger().warn("Error lateral no recibido: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
+            self.lat_error = 0.5
+        if self.ang_error is None:
+            self.get_logger().warn("Error angular no recibido: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
+            self.ang_error = 0.5
+        if self.distance is None:
+            self.get_logger().warn("Distancia al usuario no recibida: no se envian ordenes al Arduino", throttle_duration_sec=2.0)
+            self.distance = 0.5
         # solo se publica un vector cuando llegaron los 3 valores
         msg_vector = Vector3()
         msg_vector.x = float(self.lat_error)
@@ -72,7 +83,6 @@ class PIDMessageNode(Node):
         self.pid_pub.publish(msg_vector)
 
     def destroy_node(self):
-        self.cap.release()
         super().destroy_node()
 
 

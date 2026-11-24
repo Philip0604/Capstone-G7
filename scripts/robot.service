@@ -1,0 +1,23 @@
+[Unit]
+Description=Robot Capstone G7 (ROS2 + micro-ROS)
+After=network.target
+
+[Service]
+Type=simple
+User=grupo7
+# Espera unos segundos a que se reconozcan las camaras y el Arduino por USB
+ExecStartPre=/bin/sleep 8
+ExecStart=/home/grupo7/Proyecto/Capstone-G7/scripts/robot.sh
+# Si el launch completo se cae, se vuelve a lanzar
+Restart=on-failure
+RestartSec=5
+# Para que los print/logs de Python salgan altiro en journalctl
+Environment=PYTHONUNBUFFERED=1
+# Si usan ROS_DOMAIN_ID, descomentar y poner el mismo numero que en el .bashrc
+# Environment=ROS_DOMAIN_ID=0
+# Al detener el servicio, Ctrl+C "suave" al launch para que cierre bien los nodos
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
