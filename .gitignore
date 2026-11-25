@@ -27,3 +27,6 @@ install/
 log/
 
 datasets/
+
+# Ignorar tests
+test*
