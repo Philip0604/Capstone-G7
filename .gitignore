@@ -30,3 +30,5 @@ datasets/
 
 # Ignorar tests
 test*
+
+scripts/

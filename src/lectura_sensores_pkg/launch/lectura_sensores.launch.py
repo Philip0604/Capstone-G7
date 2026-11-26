@@ -10,7 +10,9 @@ def generate_launch_description():
             package='lectura_sensores_pkg',
             executable='realsense_node',
             name='realsense_node',
-            output='screen'
+            output='screen',
+            # profundidad para obstacle_detection_node
+            parameters=[{'publicar_profundidad': True}],
         ),
 
         # Node(

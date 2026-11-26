@@ -2,6 +2,7 @@
 # Publica:
 #   /camera/color/image   (sensor_msgs/Image, bgr8)
 #   /camera/depth/image   (sensor_msgs/Image, 16UC1, en milimetros) -> solo si publicar_profundidad:=true
+#   /camera/depth/camera_info (sensor_msgs/CameraInfo) intrinsecos de la profundidad (mismo caso)
 
 import cv2
 import numpy as np
@@ -9,7 +10,7 @@ import pyrealsense2 as rs
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo, Image
 
 
 class CameraNode(Node):
@@ -33,8 +34,10 @@ class CameraNode(Node):
 
         self.color_publisher = self.create_publisher(Image, "/camera/color/image", qos_profile_sensor_data)
         self.depth_publisher = None
+        self.info_publisher = None
         if self.con_profundidad:
             self.depth_publisher = self.create_publisher(Image, "/camera/depth/image", qos_profile_sensor_data)
+            self.info_publisher = self.create_publisher(CameraInfo, "/camera/depth/camera_info", qos_profile_sensor_data)
 
         # Configuracion de RealSense
         self.pipeline = rs.pipeline()
@@ -42,7 +45,12 @@ class CameraNode(Node):
         config.enable_stream(rs.stream.color, ancho, alto, rs.format.bgr8, fps)
         if self.con_profundidad:
             config.enable_stream(rs.stream.depth, ancho, alto, rs.format.z16, fps)
-        self.pipeline.start(config)
+        perfil = self.pipeline.start(config)
+        self.depth_info = None
+        if self.con_profundidad:
+            self.depth_info = camera_info_profundidad(perfil, ancho, alto)
+            if self.depth_info is None:
+                self.get_logger().warn("No se pudieron leer los intrinsecos de profundidad")
 
         # Se revisa el doble de rapido que los fps; poll_for_frames no bloquea.
         self.timer = self.create_timer(1.0 / (2.0 * fps), self.publicar_frames)
@@ -81,6 +89,9 @@ class CameraNode(Node):
                 depth_msg.header.stamp = stamp
                 depth_msg.header.frame_id = "camera_depth_optical_frame"
                 self.depth_publisher.publish(depth_msg)
+                if self.depth_info is not None:
+                    self.depth_info.header = depth_msg.header
+                    self.info_publisher.publish(self.depth_info)
 
     def destroy_node(self):
         try:
@@ -88,6 +99,21 @@ class CameraNode(Node):
         except RuntimeError:
             pass
         super().destroy_node()
+
+def camera_info_profundidad(perfil, ancho, alto):
+    """CameraInfo con los intrinsecos reales del stream de profundidad (None si falla)."""
+    try:
+        intr = perfil.get_stream(rs.stream.depth).as_video_stream_profile().get_intrinsics()
+    except (AttributeError, RuntimeError):
+        return None
+    info = CameraInfo()
+    info.width, info.height = int(intr.width), int(intr.height)
+    info.distortion_model = "plumb_bob"
+    info.d = [float(c) for c in getattr(intr, "coeffs", [0.0] * 5)]
+    info.k = [float(intr.fx), 0.0, float(intr.ppx), 0.0, float(intr.fy), float(intr.ppy), 0.0, 0.0, 1.0]
+    info.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    info.p = [float(intr.fx), 0.0, float(intr.ppx), 0.0, 0.0, float(intr.fy), float(intr.ppy), 0.0, 0.0, 0.0, 1.0, 0.0]
+    return info
 
 
 def cv2_to_imgmsg(cv_img: np.ndarray, encoding: str = "bgr8") -> Image:

@@ -6,9 +6,13 @@
 #      asfalto que los rodea (contraste local). Asi funciona con lineas gastadas
 #      y con distinta iluminacion, sin un umbral fijo de BGR.
 #   3. Se pasa la mascara (1 canal, barato) a vista cenital.
-#   4. Se buscan las lineas con histograma por columnas + ventanas deslizantes
-#      y se ajusta una recta x = a*y + b a cada una.
-#   5. Se elige el par izquierda/derecha que encierra el centro de la imagen.
+#      (se borran los pixeles rodeados de pasto: el pasto con sol parece "blanco").
+#   4. Se buscan segmentos con Hough, se agrupan en lineas x = a*y + b y se
+#      VALIDA cada linea: debe tener pixeles en casi todo su tramo y muchos mas
+#      que el piso de al lado. Asi se descartan las "lineas" armadas con ruido.
+#   5. Se elige, entre las lineas validas, el par izquierda/derecha que encierra
+#      el centro de la imagen. Si no hay dos lineas validas NO hay par (no se
+#      completa el par con una linea dudosa).
 #   6. Las dos rectas se devuelven a la imagen original y se calculan:
 #        - error lateral: 0 cuando el robot esta al centro entre las 2 lineas.
 #        - error angular: 0 cuando ambas lineas tienen la misma pendiente,
@@ -50,14 +54,21 @@ class DetectorPista:
         cenital = np.float32([[w * 0.20, 0], [w * 0.80, 0], [w * 0.80, h], [w * 0.20, h]])
         self.M = cv2.getPerspectiveTransform(pista, cenital)
         self.M_inv = cv2.getPerspectiveTransform(cenital, pista)
+        # Zona de la vista cenital que la camara realmente ve (fuera de ella no hay datos:
+        # no cuenta como "falta pintura" al validar una linea).
+        roi = np.zeros((h, w), np.uint8)
+        roi[int(h * p.Y_SUPERIOR):, :] = 255
+        self.visible = cv2.warpPerspective(roi, self.M, (w, h), flags=cv2.INTER_NEAREST) > 0
 
         # Kernels precalculados
         self.k_fondo = (p.TAM_FONDO, p.TAM_FONDO)
         self.k_open = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        self.k_veg = (p.VEG_VENTANA, p.VEG_VENTANA)
 
         # Memoria del ultimo par (ayuda a que no "salte" entre lineas)
         self.x_izq_prev = None
         self.x_der_prev = None
+        self.descartadas = 0
 
     # 1-2. Mascara de lineas blancas
     def mascara_blanco(self, pequena):
@@ -71,6 +82,7 @@ class DetectorPista:
         contraste = cv2.subtract(v, fondo)
 
         m = (contraste > p.CONTRASTE_MIN) & (v > p.BRILLO_MIN) & (s < p.SATURACION_MAX)
+        m &= ~self.mascara_vegetacion(hsv)
         m = m.astype(np.uint8) * 255
         m = cv2.morphologyEx(m, cv2.MORPH_OPEN, self.k_open)
 
@@ -78,7 +90,56 @@ class DetectorPista:
         completa[self.y0:, :] = m
         return completa
 
-    # 4. Busqueda de lineas (histograma + ventanas deslizantes)
+    def mascara_vegetacion(self, hsv):
+        """True donde el entorno del pixel es mayormente pasto (verde o seco)."""
+        h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+        verde = (h >= p.VEG_TONO_VERDE[0]) & (h <= p.VEG_TONO_VERDE[1]) & (s >= p.VEG_SAT_VERDE)
+        seco = (h >= p.VEG_TONO_SECO[0]) & (h < p.VEG_TONO_SECO[1]) & (s >= p.VEG_SAT_SECO)
+        veg = ((verde | seco) & (v >= 30)).astype(np.float32)
+        return cv2.blur(veg, self.k_veg) > p.VEG_FRACCION_MAX
+
+    # 4b. Validacion de una linea
+    def calidad_linea(self, integral, linea):
+        """
+        (relleno, contraste) de la recta en la mascara cenital.
+        integral: suma acumulada por filas de la mascara (para contar rapido).
+        """
+        h, w = self.h, self.w
+        ys = np.arange(h)
+        xs = linea["a"] * ys + linea["b"]
+
+        def filas_con_pixeles(centro, radio):
+            """(hay pixeles en la franja, la franja esta en la zona visible) por fila."""
+            x0 = np.clip(np.round(centro - radio).astype(int), 0, w)
+            x1 = np.clip(np.round(centro + radio).astype(int) + 1, 0, w)
+            xc = np.round(centro).astype(int)
+            ve = (xc >= 0) & (xc < w)
+            ve[ve] = self.visible[ys[ve], xc[ve]]
+            return (integral[ys, x1] - integral[ys, x0]) > 0, ve
+
+        en_linea, ve = filas_con_pixeles(xs, w * p.BANDA_LINEA)
+        filas = np.nonzero(en_linea & ve)[0]
+        if len(filas) < 2:
+            return 0.0, 0.0
+        tramo = np.zeros(h, bool)
+        tramo[filas[0]:filas[-1] + 1] = True
+        relleno = float(en_linea[tramo & ve].mean())
+        sep, ancho = w * p.SEPARACION_FONDO, w * p.ANCHO_FONDO
+        # Lineas gruesas (o ensanchadas por la vista cenital): las franjas de fondo
+        # se ponen fuera de la linea. Grosor = pixeles por fila en +-2*sep alrededor.
+        x0 = np.clip(np.round(xs - 2 * sep).astype(int), 0, w)
+        x1 = np.clip(np.round(xs + 2 * sep).astype(int) + 1, 0, w)
+        filas_linea = tramo & ve & en_linea
+        grosor = float(np.median((integral[ys, x1] - integral[ys, x0])[filas_linea]))
+        sep = min(max(sep, 0.5 * grosor + ancho + 2), 2 * sep)
+        fondo = 0.0
+        for lado in (-1, 1):
+            hay, ve_f = filas_con_pixeles(xs + lado * sep, ancho)
+            if np.any(tramo & ve_f):
+                fondo = max(fondo, float(hay[tramo & ve_f].mean()))
+        return relleno, relleno / max(fondo, 0.05)
+
+    # 4. Busqueda de lineas (Hough + agrupacion + validacion)
     def buscar_lineas(self, cenital):
         """
         Hough probabilistico sobre la mascara en vista cenital (sin Canny: la
@@ -119,7 +180,12 @@ class DetectorPista:
             else:
                 grupos.append({"x_ref": x_ref[i], "ang": ang[i], "idx": [i]})
 
+        # suma acumulada por filas: cuenta pixeles en un tramo de fila en O(1)
+        integral = np.zeros((h, w + 1), np.int32)
+        np.cumsum(cenital > 0, axis=1, dtype=np.int32, out=integral[:, 1:])
+
         lineas = []
+        self.descartadas = 0
         for g in grupos:
             idx = np.array(g["idx"])
             ys_g = np.concatenate([y1[idx], y2[idx]])
@@ -133,8 +199,15 @@ class DetectorPista:
                 aa, bb = np.polyfit(ys_g, xs_g, 1, w=pesos)
             else:
                 aa, bb = float(a[idx[0]]), float(x1[idx[0]] - a[idx[0]] * y1[idx[0]])
-            lineas.append({"a": float(aa), "b": float(bb), "x_ref": float(aa * y_ref + bb),
-                           "soporte": soporte, "segmentos": int(len(idx))})
+            linea = {"a": float(aa), "b": float(bb), "x_ref": float(aa * y_ref + bb),
+                     "soporte": soporte, "segmentos": int(len(idx))}
+            linea["relleno"], linea["contraste"] = self.calidad_linea(integral, linea)
+            solida = linea["relleno"] >= p.RELLENO_SOLIDO
+            contrastada = linea["relleno"] >= p.RELLENO_MIN and linea["contraste"] >= p.CONTRASTE_MIN_LINEA
+            if not (solida or contrastada):
+                self.descartadas += 1   # "linea" armada con ruido
+                continue
+            lineas.append(linea)
 
         lineas.sort(key=lambda l: -l["soporte"])
         lineas = lineas[:p.MAX_LINEAS]
@@ -218,7 +291,8 @@ class DetectorPista:
         lineas = self.buscar_lineas(cenital)
         par = self.elegir_par(lineas)
 
-        resultado = {"hay_pareja": False, "lineas_detectadas": len(lineas)}
+        resultado = {"hay_pareja": False, "lineas_detectadas": len(lineas),
+                     "lineas_descartadas": self.descartadas}
         izq_o = der_o = None
         if par is not None:
             izq, der = par

@@ -42,7 +42,7 @@ def generate_launch_description():
         # Percepción
         incluir_launch('deteccion_persona_pkg', 'deteccion_persona.launch.py'),
         incluir_launch('deteccion_pista_pkg', 'deteccion_pista.launch.py'),
-        # incluir_launch('deteccion_obstaculos_pkg', 'deteccion_obstaculos.launch.py'),
+        incluir_launch('deteccion_obstaculos_pkg', 'deteccion_obstaculo.launch.py'),
 
         # GPS y navegación
         incluir_launch('gps_pkg', 'gps.launch.py'),
